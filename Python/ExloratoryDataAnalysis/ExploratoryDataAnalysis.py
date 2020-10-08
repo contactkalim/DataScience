@@ -7,8 +7,7 @@ from mpl_toolkits.basemap import Basemap
 
 
 #Please change file path as appropriate
-df_ind_cities = pd.read_csv ("../Assignment_Python/Indian_cities.csv")
-#df_ind_cities = pd.read_csv ("C:/Users/Shadab/Documents/Python/Assignment_Python/Indian_cities.csv")
+df_ind_cities = pd.read_csv ("../Indian_cities.csv")
 print(df_ind_cities.info())
 print(df_ind_cities.describe())
 
