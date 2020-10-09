@@ -1,4 +1,4 @@
-# Face Classification Deep Learning Model using Keras on IMDB dataset 
+# Face Classification Deep Learning Model using Keras on IMFDB dataset 
 
 Get dataset from- http://cvit.iiit.ac.in/projects/IMFDB/
 
