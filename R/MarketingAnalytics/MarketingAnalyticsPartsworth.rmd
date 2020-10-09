@@ -1,0 +1,322 @@
+---
+title: <span style="color:black">"Marketing Analytics - by Shadab
+  Kalim"</span>
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+Install the libraries to be used for Assignment.
+
+```{r setup}
+if (!require(xlsx)){install.packages("xlsx")}
+if (!require(dendextend)){install.packages("dendextend")}
+if (!require(RColorBrewer)){install.packages("RColorBrewer")}
+if (!require(cluster)){install.packages("cluster")}
+if (!require(factoextra)){install.packages("factoextra")}
+if (!require(tidyverse)){install.packages("tidyverse")}
+if (!require(caret)){install.packages("caret")}
+if (!require(MASS)){install.packages("MASS")}
+if (!require(mda)){install.packages("mda")}
+if (!require(klaR)){install.packages("klaR")}
+if (!require(rpart)){install.packages("rpart")}
+if (!require(randomForest)){install.packages("randomForest")}
+if (!require(partykit)){install.packages("partykit")}
+if (!require(gbm)){install.packages("gbm")}
+if (!require(adabag)){install.packages("adabag")}
+if (!require(e1071)){install.packages("e1071")}
+if (!require(mlr)){install.packages("mlr")}
+if (!require(xgboost)){install.packages("xgboost")}
+if (!require(data.table)){install.packages("data.table")}
+
+library(xlsx)
+library(dendextend)
+library(RColorBrewer)
+library(cluster)
+library(factoextra)
+library(tidyverse)
+library(caret)
+library(MASS)
+library(mda)
+library(klaR)
+library(rpart)
+library(randomForest)
+library(partykit)
+library(gbm)
+library(adabag)
+library(e1071)
+library(mlr)
+library(xgboost)
+library(data.table)
+```
+## <span style="color:blue">1. Segment respondents based on the Partworth data (use any unsupervised learning technique).</span>
+
+The approach i have taken is to use both K-means algorithm and hierarchical (to validate K-means) to cluster parts worth data, take the cluster numbers from K-means as dependent variable class in discriminant analysis to classify respondents into one of the cluster classes using respondent data (Weekly consumption, Age, Income, Education, Sex).
+
+We need to normalize parts worth data as the values with larger scales have greater influence over total distance before running the K means algorithm. 
+The code below reads the excel file with parts worth data in sheet "partsworth" and respondents datain sheet "demographic" (file "MA PartworthDataOnly.xls" attached in .zip) into R data frame:
+
+```{r read file}
+# Please select file "MA PartworthDataOnly.xls" included in zip
+filepath <- file.choose()
+dfpartsworth <- read.xlsx(filepath, sheetName = "partsworth")
+dfpartsworth.norm <- sapply(dfpartsworth[,c(2:22)], scale)
+
+dfrespondents <- read.xlsx(filepath, sheetName = "demographic")
+```
+
+Hierarchical clustering with Eucledian distance using Ward's method suggests 3 or 6 clusters from the dendogram - 
+
+```{r Euclidean with Ward}
+# Create distance matrix using Euclidean distance
+dfpartsworth.norm.euc <- dist(dfpartsworth.norm, method = "euclidean")
+
+# Creataing cluster using Ward's method
+hc1 <- hclust(dfpartsworth.norm.euc, method="ward.D2")
+hc11 <- as.dendrogram(hc1)
+# For coloring dendrogram branches
+cb = color_branches(hc11,k=3)
+plot(cb)
+
+Clustergroups <- cutree(hc1, k=3) 
+
+# Number of observations in each cluster
+table(Clustergroups)
+```
+
+Plotting the clusters, we can see clear cluster separation with 3 clusters, with 6 there isa lot of overlapping bewtween clusters -
+```{r plotting clusters}
+kmplot <- eclust(dfpartsworth.norm, "kmeans", k = 3, nstart = 25, graph = TRUE)
+kmplot <- eclust(dfpartsworth.norm, "kmeans", k = 6, nstart = 25, graph = TRUE)
+```
+
+To perform K-Means we need to decide on the optimal number of clusters before we run the K-means algorithm. Looking at k-means plot also suggests 3 clear clusters. From Analysis above it seems optimal clusters at 3. Lets run K-means with 3.
+
+```{r K-means clustering}
+set.seed(123)
+km <- kmeans(dfpartsworth.norm, 3)
+#km$cluster
+km$centers
+dist(km$centers)
+(km$size)
+```
+
+Attaching cluster numbers to the parts worth data frame which will then be used as dependent variable class for discriminant analysis -
+```{r attaching clusters}
+dfrespsClustd <- cbind(dfrespondents, clusters = km$cluster)#Clustergroups
+```
+### <span style="color:blue">2. - Use the Descriptors in the Demographic data sheet to perform Discriminant Analysis type analysis</span>
+
+I have explicitly converted the interval data of respondents as factors to account for categorical data. The approach is to perform discriminant analysis by keeping cluster numers from k-means as dependent variable and respondent data as predictor variables. I have divided the respondent data set into traning and validation to try different algorithms like LDA, QDAetc and pick the one with highest accuracy. As discriminant analysis requires continuous varibles and the demographic data of respondents is mostly categorical, Linear oo fisher discriminant analysis is not expected to work well and this can be seen from the classification acuuracy of 0.4 (very low), MDA, FDA, RDA and RLDA also didnt fare very well in classification as well.
+
+```{r dicriminant analysis}
+
+dfrespsClustd$Age_1_7 <-as.factor(dfrespsClustd$Age_1_7)
+dfrespsClustd$Income_1_7 <-as.factor(dfrespsClustd$Income_1_7)
+dfrespsClustd$Education_1_6 <-as.factor(dfrespsClustd$Education_1_6)
+dfrespsClustd$Sex_M_1_F_2 <-as.factor(dfrespsClustd$Sex_M_1_F_2)
+dfrespsClustd$clusters <-as.factor(dfrespsClustd$clusters)
+dfreswonum <- dfrespsClustd[,c(2:7)]
+#structure(dfreswonum)
+
+# Code below is referenced from - http://www.sthda.com/english/articles/36-classification-methods-essentials/146-discriminant-analysis-essentials-in-r/
+
+
+set.seed(123)
+training.samples <- dfreswonum$clusters %>%
+  createDataPartition(p = 0.7, list = FALSE)
+train.data <- dfreswonum[training.samples, ]
+test.data <- dfreswonum[-training.samples, ]
+
+preproc.param <- train.data %>% 
+  preProcess(method = c("center", "scale"))
+#Transform the data using the estimated parameters
+train.transformed <- preproc.param %>% predict(train.data)
+test.transformed <- preproc.param %>% predict(test.data)
+
+## LDA - Linear Discriminant Analysis
+model <- lda(clusters~., data = train.transformed)
+model
+plot(model)
+predictions <- model %>% predict(test.transformed)
+print("LDA Accuracy - ")
+mean(predictions$class==test.transformed$clusters)
+
+## MDA - Mixture Discriminant Analysis
+model <- mda(clusters~., data = train.transformed)
+model
+# Make predictions
+predicted.classes <- model %>% predict(test.transformed)
+# Model accuracy
+print("MDA Accuracy - ")
+mean(predicted.classes == test.transformed$clusters)
+
+## FDA - Flexible Discriminant Analysis
+model <- fda(clusters~., data = train.transformed)
+# Make predictions
+predicted.classes <- model %>% predict(test.transformed)
+# Model accuracy
+print("FDA Accuracy - ")
+mean(predicted.classes == test.transformed$clusters)
+
+## RDA - Regularized Discriminant Analysis
+model <- rda(clusters~., data = train.transformed)
+# Make predictions
+predictions <- model %>% predict(test.transformed)
+# Model accuracy
+print("RDA Accuracy - ")
+mean(predictions$class == test.transformed$clusters)
+```
+
+As we see the classifiaction accuracy is poor with discriminant analysis, i have tried to use CART (Classification and Regression Trees), Random Forest,Naive Bayes, adaBoost, xgboost classification algorithms as they allow for better use of categorical or nominal data - 
+
+```{r Trying CART, Random Forest etc classification}
+rpart_model <- rpart(clusters~., method="class", data=train.transformed)
+rpart_pred <- predict(rpart_model,newdata=test.transformed, type='class')
+mean(rpart_pred == test.transformed$clusters)
+
+
+rf_model <- randomForest(clusters~.,data=train.transformed)
+rf_pred <- predict(rf_model, newdata=test.transformed)
+mean(rf_pred == test.transformed$clusters)
+
+ct_model <- ctree(clusters~.,data=train.transformed)
+ct_pred <- predict(ct_model, newdata=test.transformed)
+mean(ct_pred == test.transformed$clusters)
+
+ct_model <- ctree(clusters~.,data=dfreswonum)
+ct_pred <- predict(ct_model, newdata=dfreswonum)
+mean(ct_pred == dfreswonum$clusters)
+
+Naive_Bayes_Model=naiveBayes(clusters~., data=train.transformed)
+NB_Predictions=predict(Naive_Bayes_Model,test.transformed)
+mean(NB_Predictions == test.transformed$clusters)
+
+adaboost<-boosting(clusters~., data=train.transformed, boos=TRUE, mfinal=20,coeflearn='Breiman')
+pred <- predict(adaboost,test.transformed)
+print("AdaBoost Test Accuracy")
+print(1-pred$error)
+
+# As classification accuracy of adaBoost is highest we go with adaBoost
+adaboost<-boosting(clusters~., data=dfreswonum, boos=TRUE, mfinal=20,coeflearn='Breiman')
+adaboost_pred <- predict(adaboost, dfreswonum)
+print("AdaBoost Accuracy")
+print(1-adaboost_pred$error)
+
+trainDT <- setDT(train.transformed)
+testDT <- setDT(test.transformed)
+FullDT <- setDT(rbind(train.transformed, test.transformed))
+labels <- as.numeric(FullDT$clusters)-1
+train_labels <- trainDT$clusters
+test_labels <- testDT$clusters
+train_labels <- as.numeric(train_labels)-1
+test_labels <- as.numeric(test_labels)-1
+
+xgb_tr <- model.matrix(~.+0,data = trainDT[,-c("clusters"),with=F]) 
+xgb_ts <- model.matrix(~.+0,data = testDT[,-c("clusters"),with=F])
+xgb_full <- model.matrix(~.+0,data = FullDT[,-c("clusters"),with=F])
+
+mat_train <- xgb.DMatrix(data = xgb_tr,label = train_labels) 
+mat_test <- xgb.DMatrix(data = xgb_ts,label=test_labels)
+mat_full <- xgb.DMatrix(data = xgb_full,label=labels)
+
+#Code below is referenced from - https://github.com/rachar1/DataAnalysis/blob/master/xgboost_Classification.R
+
+param       = list("objective" = "multi:softmax", # multi class classification
+	            "num_class"= 3 ,  		# Number of classes in the dependent variable.
+              "eval_metric" = "mlogloss",  	 # evaluation metric 
+              "nthread" = 8,   			 # number of threads to be used 
+              "max_depth" = 16,    		 # maximum depth of tree 
+              "eta" = 0.3,    			 # step size shrinkage 
+              "gamma" = 0,    			 # minimum loss reduction 
+              "subsample" = 0.7,    		 # part of data instances to grow tree 
+              "colsample_bytree" = 1, 		 # subsample ratio of columns when constructing each tree 
+              "min_child_weight" = 12  		 # minimum sum of instance weight needed in a child 
+              )
+
+
+set.seed(100)
+
+cv.nround = 100;  # Number of rounds.  
+bst.cv = xgb.cv(
+        param=param,
+	data = mat_train,
+	nfold = 3,
+	nrounds=cv.nround,
+	prediction=T)
+
+#Find where the minimum logloss occurred
+min.loss.idx = which.min(bst.cv$evaluation_log$test_mlogloss_mean) 
+
+set.seed(100)
+
+bst = xgboost(
+		param=param,
+		data =mat_train,
+		nrounds=min.loss.idx)
+
+#model prediction
+testDT$prediction <- predict (bst,mat_test)
+
+#Translate the prediction to the original class or Species.
+testDT$prediction = ifelse(testDT$prediction==0,"1",ifelse(testDT$prediction==1,"2","3"))
+
+#Compute the accuracy of predictions.
+confusionMatrix( as.factor(testDT$prediction),testDT$clusters)
+
+bst_full = xgboost(
+		param=param,
+		data =mat_full,
+		nrounds=min.loss.idx)
+
+#model prediction
+FullDT$prediction <- predict (bst_full,mat_full)
+
+#Translate the prediction to the original class or Species.
+FullDT$prediction = ifelse(FullDT$prediction==0,"1",ifelse(FullDT$prediction==1,"2","3"))
+
+#Compute the accuracy of predictions.
+confusionMatrix( as.factor(FullDT$prediction),FullDT$clusters)
+```
+
+From above we can see that though the algorithms of Classification and Regression Trees, Random Forest, Naive Bayes, adaBoost and xgboost the accuracy has not improved a lot but adaboost with full data set gives a max classification accuracy of 0.64 but its still no where near satifactory levels. As i could not find  satisfactory method to classify demographic data of respondents into clustrers from K-means, i will try to provide cluster personifaction based on correctly classified subset of respondent data only by attaching cluster numbers as well as from the classification labels (from adaBoost algorithm) to partsworth and respondent demographic data.
+
+Exporting the dataset as csv file for vsialization in Tableau- 
+
+```{r Exporting dataset}
+#Attaching cluster numbers and classification lables for cluster and class personification
+dfrespsClusterandClassified <- cbind(dfpartsworth, dfrespondents, clusters=km$cluster,classes=as.numeric(adaboost_pred$class)) 
+
+# Keeping only correctly classified records
+dfrespsClusterandClassified <- dfrespsClusterandClassified[which(dfrespsClusterandClassified$clusters == dfrespsClusterandClassified$classes), ]
+
+# Exporting the dataset as csv for vsialization in Tableau
+fwrite(dfrespsClusterandClassified, "C:/Users/Shadab/Documents/Respondents_With_Cluster_Class.csv", row.names=FALSE, quote=FALSE)
+
+print("Table of Partswoths cluster around means")
+Aggkm = aggregate(dfrespsClusterandClassified[,2:22],list(dfrespsClusterandClassified$clusters),mean)
+data.frame(Cluster=Aggkm[,1],Freq=as.vector(table(dfrespsClusterandClassified$clusters)),Aggkm[,-1])
+```
+
+Using Tableau, i have plotted the combined clustered and classified data of respondents. Based on the plots in Tableau (attached below) the following cluster / class characterstics emerge - 
+Cluster / Class 1 - 
+  Largest cluster of respondents (70% of classified size, 50% of clustered size (159 / 317)).
+  Has a medium ratio of Female to male.
+  Average weekly consumption is lowest for both males and females so not a lot of heavy drinkers here, a small percentage (10%)        have    average consumption above 12.1.
+  Most of the respondents are College graduate or above and in the high income group with age group 35 or above. Representattive of    educated, high income social drinkers.
+  Based on the partsworth data aggregation for this group we can see from table above and Tableau plots (below) that they have clear   preference for European follwed by Japanese and negligible prerefence for Canadian, They are not very price sensitive and will       actually be willing to pay more, these prefer Rich Full bodied and Crisp and clear, have clear prefernce for Mild followed by very   mild and very low prefernce for Strong beer, This group prefers full calories however some also have preference for low calories     with very few preferring Regular, clear preference for Six 12oz large packaging with low prerefence for 4 16 Oz. and nearly equal    preference for glass label.
+  
+Cluster / Class 2 - 
+  Second largest cluster of respondents (20% of classified size, 27% of clustered size (86 / 317)).
+  Has a low ratio of Female to male.
+  Average weekly consumption is medium for males and low for females but higher than Cluster 1 for both. Few males have a mix of       young and old heavy drinkers but avergage is not very high.
+  Respondents here are a mix of College graduates or above and low to high income group with age group 21-46+. Those few who are       heavy drinkers in this group come from high income, educated and young category.
+  Based on the partsworth data aggregation for this group we can see from table above and Tableau plots (below) that they have clear   preference for Canadian follwed by Japanese and negligible prerefence for European, They are very price sensitive and have clear     preference for low price, these prefer Rich Full bodied and Crisp and clear nearly equally and have some preference for Regular      also, have equal prefernce for Mild, very mild and Strong beer, this group prefers regular and low calories and has very less        preference for Full calories, clear preference for 4 16 oz and Six 12 oz large packaging with low preference for small               packaging and nearly equal    preference for Green and brown painted glass label types.
+
+Cluster / Class 3 - 
+  Third largest cluster of respondents (10% of classified size, 23% of clustered size (72 / 317)).
+  Has the highest ratio of Female to male.
+  Average weekly consumption is highest for both males and females so a lot heavy drinkers.
+  Most of the respondents are less educated, in the low to mid income group with age group 35 or above. Representative of regular      drinkers.
+  Based on the partsworth data aggregation for this group we can see from table above and Tableau plots (below) that they have clear   preference for European follwed by Japanese and negligible prerefence for Canadian, They are not very price sensitive andprefer in   between price of 5.49, these prefer Crisp and clear follwed by Rich Full bodied, have clear prefernce for Mild and equal prefrence   for very mild and Strong beer, This group prefers Regular and low calories with low preference for full calories, clear preference   for Six 12 oz large packaging and clear preference for Brown painted lable followed by Brown for glass label.
