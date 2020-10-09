@@ -1,0 +1,238 @@
+---
+title: <span style="color:black">"Forecasting and Clustering on Olympics Data - by Shadab Kalim"</span>
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+Install the libraries to be used for Practicum.
+
+```{r setup}
+if (!require(forecast)){install.packages("forecast")}
+if (!require(cluster)){install.packages("cluster")}
+if (!require(factoextra)){install.packages("factoextra")}
+if (!require(bigmemory)){install.packages("bigmemory", dependencies = T)}
+if (!require(biganalytics)){install.packages("biganalytics", dependencies = T)}
+if (!require(data.table)){install.packages("data.table")}
+if (!require(dplyr)){install.packages("dplyr")}
+
+library(forecast)
+library(cluster)
+library(factoextra)
+library(bigmemory)
+library(biganalytics)
+library(data.table)
+library(dplyr)
+```
+## <span style="color:blue">Olympics Dataset exploration</span>
+
+Read the csv file containing Olympics data to R data frame:
+
+```{r read file}
+Olympics.df <- read.csv(file.choose(), header =TRUE, stringsAsFactors =FALSE)
+#structure(Olympics.df)
+summary(Olympics.df)
+```
+
+I plan to start my Analyis of the Olympics dataset with a timeseries forecasting of the number of medals a team (modelled using USA Gold tally) is likely to win in the next olympics in Tokyo, 2020, followed by k-means of clustering to see if we can extract some usefull insights from the dataset.
+
+### <span style="color:blue">Time Series Forecasting - Summer Olympics Medal predictions</span>
+
+Preparing the dataset to be in time series format (For Summer Olympics)- From unique values of Summer Olympics Years we can see that due to WW -I and II Olympics were not held 4 yearly till 1948, as time series data requires evenly spaced data, i have dropped rows before 1948.  My focus in this excercise is summer olympics but same concepts can be taken over Winter for building a forecasting model.
+
+Also in the present dataset each athlete is mentioned with Gold medal even if it is a team event like Vollyball etc. This can affect prediction. I have counted team medals as one.Also in certain Olympics USA won 2 Gold medalsin the same event for e.g. Sydney 2000 in event Men's 50 metre freestyle (refer here - https://en.wikipedia.org/wiki/Swimming_at_the_2000_Summer_Olympics_%E2%80%93_Men%27s_50_metre_freestyle)
+I have not tried to correct these events in our dataset as these can be considered exceptional events.
+
+There is also a clear outlier in 1984 for USA as USSR had boycotted 1984 Olympics which lead to a larger than usual medal count for USA. This is definetly going to impact any forecasting predictions we make i have decided toreplace 1984 Gold count of USA with mean of Gold count.
+
+I have taken the first 16 Olympics from 1948 till 2012as training data and 2016 Olympic as test orvalidation data.
+
+Looking at the plot of Data with fitted line it seems to fit a quadratic trend. As we dont expect to see a any Seasonality (As 4 year period data) we try to fit a quadtratic and a quadtratic plus 3rd degree ploynomial i.e. t3.We also compare our model with Exponential trend, Automated exponential and automated ARIMA and find RMSE is lower in quadtratic model as well as prediction error is with in 2 medals. 2016 GOLD medalcount for USA was 46 and our quadtratic trend model Predicted 44 for 2016. All the residual tests also seems to pass for our Quadtratic trend model as can be seen from residual plots and the Shapiro-Wilk normality test.
+
+```{r time series data prep}
+getMedalTableYearwise <- function(medaltype, Country, IsTrain)
+{
+    OlympicsTS.df <- Olympics.df[Olympics.df$Season == 'Summer',]
+    # Check Year column
+    OlympicsTS.df <- OlympicsTS.df[order(OlympicsTS.df$Year),]
+    unique(OlympicsTS.df[c("Year")])
+    #structure(OlympicsTS.df)
+    OlympicsTS.df <- OlympicsTS.df[OlympicsTS.df$Year >= 1948,]
+    if(IsTrain)
+    {
+       OlympicsTS.df <- OlympicsTS.df[OlympicsTS.df$Year < 2016,]  
+    }
+    OlympicsTS.C.df <- OlympicsTS.df[OlympicsTS.df$NOC == Country & OlympicsTS.df$Medal == medaltype,]
+    OlympicsTS.C.df <- dplyr::distinct(OlympicsTS.C.df, Year, Event,.keep_all=TRUE)
+    #OlympicsTS.USA.df <- OlympicsTS.USA.df[!duplicated(OlympicsTS.USA.df$Event), ]
+    
+    OlympicsTS.C.grp <-data.frame(table(OlympicsTS.C.df$Year))
+    OlympicsTS.C.Summed <- aggregate(Freq ~ Var1, OlympicsTS.C.grp, sum)
+    return(OlympicsTS.C.Summed)
+    
+}
+
+fitModel <- function(model)
+{
+  reg0 <- model
+  plot(USA.SOlympics.TS, main = "Time Series with Quadratic Trend")
+  points(t,predict.lm(reg0),type='l',col='red')
+  
+  
+  par(mfrow=c(2,2)) # Dividing the plotting page into 4 panels
+  plot(reg0$fitted, reg0$residuals,main="Residuals vs Fitted", xlab = "Fitted", ylab = "Residuals") # plot of fitted values vs residuals
+  qqnorm(reg0$residuals) #qq-plot of residuals
+  qqline(reg0$residuals,col="blue") # plotting the line, along which the dots in qq-plot should lie
+  plot(reg0$residuals,main = "Residuals vs Time", ylab = "Residuals") # plotting the residuals vs time
+  abline(h=0,lty=2,col ="blue") # plotting a horizontal line at 0
+  acf(reg0$residuals,main="ACF plot of Residuals")#sample acf plot of residuals
+  (reg0$residuals)
+  shapiro.test(reg0$residuals)
+}
+#######################
+# Model Selection Code
+#######################
+OlympicsTS.USA.Summed <- getMedalTableYearwise('Gold', 'USA', TRUE)
+# Replace 1984 Gold count with mean as its a definite outlier
+OlympicsTS.USA.Summed[OlympicsTS.USA.Summed$Var1 == 1984, 2] <- round(mean(OlympicsTS.USA.Summed$Freq))
+
+# Preparing Time Series Dataset
+USA.SOlympics.TS <- ts(OlympicsTS.USA.Summed$Freq)
+
+
+plot.ts(USA.SOlympics.TS)# Looking at the plot it seems Quadtratic trend will fit best
+
+t <- time(USA.SOlympics.TS) # Extracting time as the explanatory variate from the time series framework of data
+
+model <- lm(log(USA.SOlympics.TS)~t ) #Exponential model produces a an error of 5 medals
+fitModel(model)
+accuracy(model)
+new <- data.frame(t = (17))# Predict for Test data - Year 2016
+predict(model, new)
+exp(3.710054)
+
+model <- lm(USA.SOlympics.TS~t + I(t^2)) #First we fit quadtratic follwed by poynomial of degree 3
+fitModel(model)
+accuracy(model)
+new <- data.frame(t = (17))# Predict for Test data - Year 2016
+predict(model, new)
+
+model <- lm(USA.SOlympics.TS~t + I(t^2) + I(t^3)) #Plonomial ofdegree 3 added
+fitModel(model)
+accuracy(model)
+new <- data.frame(t = (17))# Predict for Test data - Year 2016
+predict(model, new)
+
+#Compamre our quadtratic model with automated models for exponential and ARIMA fromforecast package,  find RMSE of our Quadratic model has lower and prediction accuracy of test data better, so we go with our model
+
+fit <- ets(USA.SOlympics.TS)
+accuracy(fit)
+
+fit <- auto.arima(USA.SOlympics.TS)
+accuracy(fit)
+predict(fit, n.ahead = 1)
+```
+
+From Above Model selection code we can see that RMSE of Qudatratic trend model with no seasonality has lowest RMSE, so we can now redict using this model lets say for USA or China - 
+
+```{r Predict with Full selected model}
+Medal <- 'Gold'
+Country <- 'CHN'
+OlympicsTS.CNTRY.Full <- getMedalTableYearwise(Medal, Country, FALSE)
+#Impute the outlier
+#OlympicsTS.CNTRY.Full[OlympicsTS.CNTRY.Full$Var1 == 1984, 2] <- round(mean(OlympicsTS.CNTRY.Full$Freq))
+OlympicsTS.CNTRY.TS <- ts(OlympicsTS.CNTRY.Full$Freq)
+t <- time(OlympicsTS.CNTRY.TS) # Extracting time as the explanatory variate from the time series framework of data
+model <- lm(OlympicsTS.CNTRY.TS~t + I(t^2)) 
+fitModel(model)
+accuracy(model)
+new <- data.frame(t = (nrow(OlympicsTS.CNTRY.Full)+1))
+cat("The predicted ",Medal, "count for ", Country, " is: ", sep ="", fill = TRUE)
+round(predict(model, new))
+
+# Below line just to show RMSE of automated models is higher
+fit <- ets(OlympicsTS.CNTRY.TS)
+accuracy(fit)
+
+fit <- auto.arima(OlympicsTS.CNTRY.TS)
+accuracy(fit)
+
+```
+
+
+### <span style="color:blue">Clusuering the Olympics dataset using K-means. </span>
+
+I plan to perform kmeans clustering on Age, Height and Weight to see if these have any influence in participants winning medals for Summer Olympics. We can see a number of NA values in Height, Weight and in most such cases the participants have not won any medals either so i have decided to omit these.
+As the dataset on Olympics contains all both Summer and Winter Olympics,i have split tha dataset into 2 datasets,one each for winter and Summer. My focus in this excercise is summer olympics but same concepts can betaken over Winter for exploration.
+Also as the scale of measurement is different for Age, Height and Weight, i have normalized these columns.
+
+```{r Split Dataset}
+#Split Dataset into Summer and Winter
+OlympicsS.df <- Olympics.df[Olympics.df$Season == 'Summer',]
+OlympicsW.df <- Olympics.df[Olympics.df$Season == 'Winter',]
+#Omit NA's
+OlympicsS.df <- na.omit(OlympicsS.df)
+OlympicsW.df <- na.omit(OlympicsW.df)
+#Normalize dasaset 
+OlympicsS.df.clust <- OlympicsS.df[,c(4,5,6)]
+OlympicsS.df.c.norm <- sapply(OlympicsS.df.clust, scale)
+
+OlympicsW.df.clust <- OlympicsW.df[,c(4,5,6)]
+OlympicsW.df.c.norm <- sapply(OlympicsW.df.clust, scale)
+```
+
+
+Before i can perform K-means, i need to figure out what the optimalnumber of clusters could be, for this we plot the scree or elbow plot which suggest k at 4 -
+
+```{r Find optimal k}
+# 1. Elbow Method. 
+OlympicsW.mat <- as.matrix(OlympicsS.df.c.norm)
+wss <- (nrow(OlympicsW.mat)-1)*sum(apply(OlympicsW.mat,2,var))
+  for (i in 2:15) wss[i] <- sum(kmeans(OlympicsW.mat,
+                                       centers=i)$withinss)
+plot(1:15, wss, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares")
+
+```
+
+### <span style="color:blue">Run K-means with Big Analytics package.</span>
+
+Because of the limitation of R to allocate a large continous vector,we have to use the big memory and biganalytics package to perform k-means -
+
+
+```{r Big K-means}
+OlympicsS.BigMat <- as.big.matrix(OlympicsS.df.c.norm)
+OlympicsS.BigKMeans <- bigkmeans(OlympicsS.BigMat, 4, iter.max = 50, nstart = 5, dist = "euclid")
+OlympicsS.BigKMeans$centers
+OlympicsS.df.WithClustNos <- cbind(OlympicsS.df, cluster = OlympicsS.BigKMeans$cluster)
+```
+
+### <span style="color:blue">Cluster exploration with aggregation</span>
+
+Aggregating the mean values of cluster columns, we can see an evenly spaced cluster on Height and weight. Also Cluster 4 seems to be bringing in maximum medals, suggestive may be of an optimum blend of age, height and weight but we will have to explore this more with specific sports with Tableau.
+This analysis could be useful for team nutritionists who could explore if height,weight and age plays any role in medal prospects in lesser studied sports on these parameters such as Swimming, Archery etc. as we all know height plays an importance in Basektball, Boxing etc.
+
+```{r Cluster Aggregation}
+print("K-means Median Aggregtaion")
+Aggkm = aggregate(OlympicsS.df.clust,list(OlympicsS.BigKMeans$cluster),mean)
+data.frame(Cluster=Aggkm[,1],Freq=as.vector(table(OlympicsS.BigKMeans$cluster)),Aggkm[,-1])
+
+```
+
+### <span style="color:blue">Cluster Analysis - With Tableau</span>
+
+After attaching cluster numbers to Summer Olympics dataset,the dataset is exported to a csv file for visualizations in Tableau for analysis-
+
+```{r Export as csv}
+replaceCommas <- function(df)
+{
+  for(i in names(df))
+  {
+    df[[i]] <- gsub(',', '-', df[[i]])
+  }
+  return(df)
+}
+fwrite(replaceCommas(OlympicsS.df.WithClustNos), "C:/Users/Shadab/Documents/Olympic_Clusters.csv", row.names=FALSE, quote=TRUE)
+```
+
