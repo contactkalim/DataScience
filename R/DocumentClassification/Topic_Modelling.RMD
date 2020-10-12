@@ -1,0 +1,340 @@
+---
+title: "Creating Documents from Wikipedia Pages and Applying Latent Topic Modelling"
+output:
+  html_document:
+  df_print: paged
+---
+  
+Below code installs all the necessary packages:
+```{r}
+
+suppressPackageStartupMessages({
+  if (!require(rvest)){ install.packages("rvest")}; library(rvest)
+})
+suppressPackageStartupMessages({
+  if (!require(tm)){ install.packages("tm")}; library(tm)
+})
+suppressPackageStartupMessages({
+  if (!require(tokenizers)){ install.packages("tokenizers")}; library(tokenizers)
+})
+suppressPackageStartupMessages({
+  if (!require(tidyverse)){ install.packages("tidyverse")}; library(tidyverse)
+})
+suppressPackageStartupMessages({
+  if (!require(tidytext)){ install.packages("tidytext")}; library(tidytext)
+})
+suppressPackageStartupMessages({
+  if (!require(stringr)){ install.packages("stringr")}; library(stringr)
+})
+suppressPackageStartupMessages({
+  if (!require(topicmodels)){ install.packages("topicmodels")}; library(topicmodels)
+})
+
+suppressPackageStartupMessages({
+  if (!require(ggplot2)){ install.packages("ggplot2")}; library(ggplot2)
+})
+
+```
+
+The below piece of code is creating a function 'getSentencesFrmWikiPages', taking wikipedia URLs as 
+argument, and tokenizing them to sentences.
+
+```{r}
+
+getSentencesFrmWikiPages <- function(url)
+{
+  pagetext <- vector()
+  wikipagetext <- read_html(url)
+  paragraphs <- wikipagetext %>% html_nodes(xpath = "//p")
+  
+  for(paragraph in paragraphs)
+  {
+    p.text <- paragraph %>% html_text()
+    pagetext<- c(pagetext,p.text)
+    
+  }
+  pagetext <- gsub("[^a-zA-Z\\.']+", " ", pagetext )
+  sentences <- tokenize_sentences(pagetext)
+  return (sentences)
+}
+
+```
+
+The below portion of code is taking 4 wikipedia pages which are of different domains, and assigning them to 4 different objects - wikipage1, wikipage2, wikipage3, and wikipage4. 
+
+Then, creating a vector - wikipages, concatenating all the above 4 objects. 
+
+Then, creating 4 more objects containing sentences from 4 wikipedia pages. 
+
+After that, creating a list comprising of all the sentences of 4 Wikipedia pages. 
+
+Finally, creating a list consisting of 24 vectors with different combinations of sentences possible to distrubute to the 4 wikipedia pages by randomly selecting a combination.
+
+```{r}
+
+wikipage1 <- "https://en.wikipedia.org/wiki/Mahatma_Gandhi"
+wikipage2 <- "https://en.wikipedia.org/wiki/Apple_Inc."
+wikipage3 <- "https://en.wikipedia.org/wiki/Roger_Federer"
+wikipage4 <- "https://en.wikipedia.org/wiki/Singapore"
+
+wikipages <- c(wikipage1, wikipage2, wikipage3, wikipage4)
+
+wikiMahatmaGandhi <- unlist(getSentencesFrmWikiPages(wikipage1), recursive = TRUE, use.names = TRUE)
+wikiApple <- unlist(getSentencesFrmWikiPages(wikipage2), recursive = TRUE, use.names = TRUE)
+wikiRogerFederer <- unlist(getSentencesFrmWikiPages(wikipage3), recursive = TRUE, use.names = TRUE)
+wikiSingapore <- unlist(getSentencesFrmWikiPages(wikipage4), recursive = TRUE, use.names = TRUE)
+wikiList <- list(wikiMahatmaGandhi, wikiApple, wikiRogerFederer, wikiSingapore)
+
+distScale <- list(c(0,0,0,8),c(0,0,4,4),c(0,0,8,0),c(0,2,2,4),c(0,2,4,2),c(0,4,0,4),c(0,4,2,2),c(0,4,4,0),c(0,8,0,0),c(2,0,2,4),c(2,0,4,2),c(2,2,0,4),
+               c(2,2,2,2),c(2,2,4,0),c(2,4,0,2),c(2,4,2,0),c(4,0,0,4),c(4,0,2,2),c(4,0,4,0),c(4,2,0,2),c(4,2,2,0),c(4,4,0,0),c(8,0,0,0))
+
+```
+
+The following chunk of code is creating a data frame - dfdocs of 9 variables consisting of sentences from different documents. This is to preserve the ratio of sentence distribution along with this we are creating another data frame for LTM - dfforLTM containing 3 columns - id, text, and title. 
+
+randompicks function will randomly pick one of the sentences ratio from distScale and rselwikilist will contain the appropriate sentences from any one of the 4 wikipedia pages appropriately. Suppose we have choosen vector (0,0,0,8), then rselwikilist will be containing 8 sentences from Wikipedia page Singapore. 
+
+Now, sentcsel will contain all the sentences from all the documents. 
+and then, dfforLTM will be having 1 row having values for 3 variables id, text, and document name i.e. title. 
+
+```{r}
+
+dfdocs <- data.frame(matrix(ncol = 9, nrow = 0), stringsAsFactors = F)
+dfforLTM <- data.frame(matrix(ncol = 3, nrow = 0), stringsAsFactors = F)
+colnames(dfforLTM) <- c("id", "text", "title")
+docNames <- c("MahatmaGandhi", "Apple", "RogerFederer",  "Singapore")
+colnames(dfdocs) <- c("DocNum", "MahatmaGandhi", "MGPorp", "Apple", "AppPorp",  "RogerFederer","RFPorp",  "Singapore", "SingPorp")
+temp <- list()
+for(i in 1:150)
+{
+  sumcount <- 0
+  
+  sentcsel <- list()
+  randompicks <- unlist(sample(distScale, 1, replace = T))
+  for(z in 1:4)
+  {
+    rselwikilist <- list()
+      if(randompicks[z] > 0)
+      {
+        rselwikilist <- sample(wikiList[[z]], randompicks[z], replace = FALSE)
+        wikiList[[z]] <- setdiff(wikiList[[z]], rselwikilist)
+        rselwikilist <- paste(rselwikilist, collapse = " ")
+      }
+      else
+      {
+        rselwikilist <- ""
+      }
+    sentcsel <- list(sentcsel, rselwikilist, randompicks[z])
+    dfforLTM[nrow(dfforLTM)+1,] <- c(i, rselwikilist, paste(docNames[z],i,sep="_"))#docNames[z])
+  }
+  
+  dfdocs[nrow(dfdocs)+1,] <- c(paste("Doc",i,sep="_"), unlist(sentcsel, recursive = TRUE))
+}
+
+```
+
+The below piece of code is grouping the sentences containing in dfforLTM data frame by title using as_tibble method, and then, splitting the sentences into words. 
+
+We use tidytext's `unnest_tokens()` to separate the sentences into words, and then remove `stop_words`.
+
+Finally, DocumentTermMatrix will be formed. 
+<b>
+As the sentences are randomly dsitributed and each wiki page has varying sentence length, the LTM analysis are sometimes not very accurate but depends on uniform sentence distribution. <b>
+
+```{r}
+
+#dfforLTM1 <- dfforLTM %>% group_by(title)
+
+doctibble <- as_tibble(dfforLTM)
+
+
+# split into words
+by_documents_word <- doctibble %>%
+  unnest_tokens(word, text)
+
+# find document-word counts
+word_counts <- by_documents_word %>%
+  anti_join(stop_words) %>%
+  count(title, word, sort = TRUE) %>%
+  ungroup()
+
+word_counts    # A tibble: 104,722 x 3. cols = {doc, word, n}
+
+# now cast into dtm
+documents_dtm <- word_counts %>%
+  cast_dtm(title, word, n)
+
+documents_dtm   # DocumentTermMatrix (documents: 193, terms: 18215)
+
+```
+
+Now, fit LTM with K=4 corresponding to the 4 wikipedia pages. 
+
+### Fitting a topicmodel
+
+```{r fitting LTM}
+
+documents_lda <- LDA(documents_dtm, k = 4, control = list(seed = 1234))
+
+documents_lda
+
+```
+
+Up to now, we just topic analyzed four wikipedia pages.Now, we will analyze LTM output.
+
+```{r analysing LTM outp}
+
+documents_topics <- tidy(documents_lda, matrix = "beta")
+documents_topics    # tibble: 72,860 x 3
+
+# use dplyr's top_n() to find the top 5 terms within each topic.
+top_terms <- documents_topics %>%
+  group_by(topic) %>%
+  top_n(5, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms
+
+```
+
+This tidy output lends itself well to a ggplot2 visualization. In particular, the `face_wrap()` facility enables a grid of plots to emerge.   
+
+```{r}
+
+top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+
+```
+
+### Analysing document-topic mappings
+
+Now, we are analysing document topic mappings. We may want to know which topics are associated with each document.   
+
+Can we put the sentences back together in the correct documents? Or could we find out which sentence belongs to which document? We can find this by examining the per-document-per-topic probabilities, "gamma".  
+
+Following is the gamma analysis:
+
+```{r gamma analysis}
+
+docs_gamma <- tidy(documents_lda, matrix = "gamma")
+docs_gamma    # A tibble: 772 x 3
+
+# re-separate the document name into title and chapter
+docs_gamma <- docs_gamma %>%
+  separate(document, c("title", "DocNum"), sep = "_", convert = TRUE)
+
+docs_gamma 
+
+```
+
+How this could be interpreted? This could be understand as - each gamma value is an estimated proportion of words from that document that are generated from that topic.   
+
+For eg. in DocNum1, we have sentences from RogerFederer_1 and Singapore_1, therefore, the probability in the above gamma matrix for word - RogerFederer is 0.99 or 99%. 
+
+Now that we have these topic probabilities, we can see how well our **unsupervised learning** did. 
+
+Also, we can visualize the per-document-per-topic probability for each topic.
+
+```{r boxplotting}
+
+docs_gamma %>%
+  mutate(title = reorder(title, gamma * topic)) %>%
+  ggplot(aes(factor(topic), gamma)) +
+  geom_boxplot() +
+  facet_wrap(~ title)
+
+```
+
+### Classifying Documents using Model Output 
+
+In the below chunk of code, we first find the topic that was most associated with a document using 'top_n(1)`, which is effectively the "classification" of that document. 
+
+```{r document classifications}
+
+document_classifications <- docs_gamma %>%
+  group_by(title, DocNum) %>%
+  top_n(1, gamma) %>%
+  ungroup()
+
+document_classifications
+
+```
+
+Now, let us compare what the model estimated against the "known" topic assignments (that's what a simulation is actually - where we know the true values in advance in order to assess the validity of the method being tested).  
+
+```{r assessing topic recovery}
+
+docs_topics <- document_classifications %>%
+  count(title, topic) %>%
+  group_by(title) %>%
+  top_n(1, n) %>%
+  ungroup() %>%
+  transmute(consensus = title, topic)
+
+docs_topics    # A tibble: 4 x 2
+
+# find 'em mismatches now.
+document_classifications %>%
+  inner_join(docs_topics, by = "topic") %>%
+  filter(title != consensus)
+
+document_classifications   
+
+```
+
+### Assessing and Visualizing Model Performance
+
+```{r}
+
+assignments <- augment(documents_lda, data = documents_dtm)
+assignments    # tibble: 104,721 x 4. cols={doc, term, count, .topic}
+
+# combine assignments table with consensus document titles to find incorrectly classified words.
+
+assignments <- assignments %>%
+  separate(document, c("title", "DocNum"), sep = "_", convert = TRUE) %>%
+  inner_join(docs_topics, by = c(".topic" = "topic"))
+
+assignments
+
+```
+
+This combination of the true document (title) and the document assigned to it (consensus) is useful for further exploration.   
+
+We can, for example, visualize a *confusion matrix*, showing how often words from one document were assigned to another, using dplyr's `count()` and ggplot2's `geom_tile`.  
+
+### Confusion Matrix
+
+```{r confusion matrix}
+
+assignments %>%
+  count(title, consensus, wt = count) %>%
+  group_by(title) %>%
+  mutate(percent = n / sum(n))%>%
+  ggplot(aes(consensus, title, fill = percent)) +
+  geom_tile() +
+  scale_fill_gradient2(high = "red") +  # , label = percent_format()
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid = element_blank()) +
+  labs(x = "Pages words were assigned to",
+       y = "Pages words came from",
+       fill = "% of assignments")
+
+```
+
+The below chunk of code will determine what were the most commonly mistaken words?
+
+```{r}
+
+wrong_words <- assignments %>%
+  filter(title != consensus)
+
+wrong_words
+
+```
