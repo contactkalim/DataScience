@@ -200,8 +200,8 @@ Also the Scale location plot for both the datasets shows unequal dispersion sugg
 
 As the number of 0 count for lockons is low for both the datasets, it can be assumed that the overdispersion is not due to excess zeros and more due to heterogeneity of population, to accomodate overdispersion i propose the Negative Binomial model.
 
-Next I fitted a negative binomial model to account for overdispersion by treating the parameter µ itself as a random
-variable. i.e. instead of modeling Yi as Poisson(µi) we model Yi|µi ??? Poisson(µi) where µi are random varibles distributed as Gamma with parameters ??i, ????i. This approach leads to Yi following Negative Binomial distribution.
+Next I fitted a negative binomial model to account for overdispersion by treating the parameter Âµ itself as a random
+variable. i.e. instead of modeling Yi as Poisson(Âµi) we model Yi|Âµi ??? Poisson(Âµi) where Âµi are random varibles distributed as Gamma with parameters ??i, ????i. This approach leads to Yi following Negative Binomial distribution.
 
 ```{r Negative Binomial Regression Model Fitting}
 fm_nbinHudson <- MASS::glm.nb(Lockons ~ Period + Bouts + Daytime, data = lockonsHudson.df)
