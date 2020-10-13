@@ -1,2 +1,2 @@
 # DataScience
-Scrapping, Cleaning, Visualizations, Model building
+Scrapping, Cleaning, Visualizations, Model building with sample datasets.
