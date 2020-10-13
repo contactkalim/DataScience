@@ -1,0 +1,165 @@
+---
+title: <span style="color:black">"Stepwise Regression"</span>
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+Install the libraries to be used
+
+```{r setup}
+if (!require(olsrr)){install.packages("olsrr")}
+if (!require(MASS)){install.packages("MASS")}
+if (!require(lm.beta)){install.packages("lm.beta")}
+if (!require(ggplot2)){install.packages("ggplot2")}
+if (!require(xlsx)){install.packages("xlsx", dependencies = TRUE)}
+if (!require(corrplot)){install.packages("corrplot")}
+if (!require(PerformanceAnalytics)){install.packages("PerformanceAnalytics")}
+if (!require(lmtest)){install.packages("lmtest")}
+
+
+library(olsrr)
+library(MASS)
+library(lm.beta)
+library(ggplot2)
+library(xlsx)
+library(corrplot)
+library(PerformanceAnalytics)
+library(lmtest)
+```
+## <span style="color:blue">Read excel file</span>
+
+Read the excel file Dataset for Dataset.xls to R data frame:
+
+```{r read file}
+Marks.df <- read.xlsx(file.choose(), sheetName = "Helapuri-All Blocks", stringsAsFactors =TRUE)
+```
+
+### <span style="color:blue">Taking a random sample of 1000 and replacing na's with 0. </span>
+
+```{r random sample replace NAs}
+Marks.df <- Marks.df[sample(1:nrow(Marks.df), 1000, replace=FALSE),]
+Marks.df[is.na(Marks.df)] <- 0
+#Export the file
+write.xlsx(x = Marks.df,row.names = F,  file = "C:/Users/Shadab/Downloads/Sample1000_SA2.xlsx")
+Marks.df$AGE <- as.integer(Marks.df$AGE)
+Marks.df <- Marks.df[ -c(1) ]
+colnames(Marks.df)[colnames(Marks.df)=="Gender.F.Female."] <- "Gender"
+colnames(Marks.df)[colnames(Marks.df)=="AREA.Agrl."] <- "AREA_Agrl"
+```
+
+### <span style="color:blue">1. What are the variables that influence the total score? What is the actual impact of each of the variables.</span>
+
+Variable Selection
+As a first step we plot a correlation matrix with scatter plots of numrical values in the dataset to see what potential variable can be picked up for regression. We can see from the coorelation plot that Total seems to have a strong positive correlation with WRITE, READ, MATH and a weak negative correlation with AGE (-0.10, see red stars in joint plot). Also we can see some weak positive correlation between READ- WRITE, READ-MATH, and WRITE-MATH, which we will explore using  variance inflation factor (or VIF) later to rule out multicollinearity in our model. 
+
+We set our alpha at 5%.
+
+We then run a step wise regression (using both ) on all categorical and numeric values (TOTAL~Gender + AGE + CASTE + RELIGN + MTONGUE + OCCU + INCOME + AREA_Agrl + WRITE + READ + MATH)  and categorical plus some of numeric values i.e.  (TOTAL~Gender + AGE + CASTE + RELIGN + MTONGUE + OCCU + INCOME + AREA_Agrl) separatley as running step wise on all columns is identifying only WRITE, READ and MATH as statistically significant. We find that as our correlation plots have indicated only READ, WRITE , MATH and AGE,OCCU value of H (0.047 p- value)  get picked up (in separate regression models) as statistically significant. 
+
+Partial F-test - 
+We can also run a partial F- test here to pick out if there is any value in variables other than WRITE + READ + MATH i.e. do other vaialbles hany any explanatory, we can see from the partial F-test that p-value is less than all values of alpha at even 1% so we can reject null hypothesis implying that there could be varaibles other than WRITE + READ + MATH which could contribute to explaining or influencing TOTAL but we need to find out if that is significant or not.
+
+We ran a regression using both olss and MASS libraries (for cross check on results). 
+
+
+```{r Variable Selection}
+#structure(Marks.df)
+Corr.df <- Marks.df[, c(2, 7, 8, 9 , 10 , 11, 12)]
+res <- cor(Corr.df)
+corrplot(res, type = "upper", order = "hclust", tl.col = "black", tl.srt = 45)
+chart.Correlation(Corr.df, histogram=TRUE, pch=19)
+
+
+runStepWiseBothOLSSANDStepAIC <- function(model, detailsTOrF)
+{
+  fit <- lm(model, Marks.df)
+
+  ols_step_both_p(fit, pent = 0.1, prem = 0.3, details = detailsTOrF)
+  step.model <- stepAIC(fit, direction = "both", trace = detailsTOrF)
+  summary(step.model)
+}
+
+modelReduced <- TOTAL~Gender + AGE + CASTE + RELIGN + MTONGUE + OCCU + INCOME + AREA_Agrl
+runStepWiseBothOLSSANDStepAIC(modelReduced, TRUE)
+modelFull <- TOTAL~Gender + AGE + CASTE + RELIGN + MTONGUE + OCCU + INCOME + AREA_Agrl + WRITE + READ + MATH
+runStepWiseBothOLSSANDStepAIC(modelFull, TRUE)
+
+#Partial F-TEST
+fitReduced <- lm(modelReduced, Marks.df)
+FitFull <-lm(modelFull, Marks.df)
+anova(fitReduced, FitFull)
+```
+
+### <span style="color:blue">1. We next run regression on model - (TOTAL~ AGE + OCCU + INCOME + AREA_Agrl + WRITE + READ + MATH)</span>
+
+After running a model with all the potential variables, we find that only READ, WRITE and MATH are found to be statistically significant ( p-value less than 5%) even after re running stepwise as extra step as the adjusted R2 with only READ, WRITE and MATH is 0.9978 it leaves no more varaiablibility for AGE and OCCU (of U) to explain and they come out as insignificant. 
+However as we saw some correlation among READ, WRITE and MATH, we also run the regression individually to see how they fare - 
+
+```{r Regression}
+modelSel <- TOTAL~ AGE + OCCU + WRITE + READ + MATH
+fit <- lm(modelSel, Marks.df)
+summary(fit)
+runStepWiseBothOLSSANDStepAIC(modelSel, FALSE)
+
+print("Run Regression Individually with READ, WRITE and MATH")
+
+modelSel1 <- TOTAL~ WRITE
+fit <- lm(modelSel1, Marks.df)
+summary(fit)
+modelSel2 <- TOTAL~ READ 
+fit <- lm(modelSel2, Marks.df)
+summary(fit)
+modelSel3 <- TOTAL~ MATH
+fit <- lm(modelSel3, Marks.df)
+summary(fit)
+
+```
+As we can see that on their own none of either READ, WRITE or MATH can explain more than what they can account for together. 
+
+We need to now check for multi collinearity with in our selected predictor variables with  variance inflation factor (or VIF) - 
+
+```{r Final Model VIF}
+modelFinal <- TOTAL~ WRITE + READ + MATH
+fitFinal <- lm(modelFinal, Marks.df)
+car::vif(fitFinal)
+```
+As we can see from above output that VIF for WRITE,  READ,  MATH is less than 5 and near to 1, ruling out multicollinearity.
+
+However when we ran regression with out READ, WRITE and MATH, we found AGE and OCCU (of U) to have some minor influece on TOTAL, So we can conclude that the variables READ, WRITE and MATH inlfuence TOTAL the most however separately AGE and OOCU (of U) might also have minor influence on TOTAL which can be explored separately by applying domain knowledge or with a bigger sample. 
+The slope coefficients i.e. beta's are - 
+
+ READ    0.997
+ MATH    1.008 
+ WRITE   0.995 
+ 
+
+Now we need to calculate the standerdized beta's to asses the actual impact of these variables follwed by diagnostic checks to validate regression assumptions -
+
+```{r standardized betas}
+
+lm.std.beta <- lm.beta(fitFinal)
+print(lm.std.beta,standardized=T)
+
+```
+From above output we can see that READ and NOT MATH has the highest influence on TOTAL followed by MATH and WRITE.
+
+Diagnostics to validate assumptions -
+1. Test for heteroskedasticity - Plot of residuals - There seems to be a couple of fairly large outliers that may be affecting our regression which we must investigate.
+
+2.  - 
+
+```{r Outliers, Leverage}
+ols_plot_resid_stud(fitFinal)
+ols_plot_resid_lev(fitFinal)
+
+par(mfrow=c(2,2)) # init 4 charts in 1 panel
+plot(fitFinal)
+
+lmtest:: bptest(fitFinal)
+
+lmtest::gqtest(fitFinal)
+#RAMSEY RESET
+lmtest::resettest(fitFinal)
+```
