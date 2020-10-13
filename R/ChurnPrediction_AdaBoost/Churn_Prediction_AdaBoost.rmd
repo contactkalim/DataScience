@@ -1,0 +1,257 @@
+---
+title: <span style="color:black">"Churn Prediction"</span>
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=20, fig.height=18) 
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+Install the libraries to be used
+
+```{r setup}
+if (!require(xlsx)){install.packages("xlsx")}
+if(!require(dplyr)){install.packages("dplyr")}
+if(!require(plyr)){install.packages("plyr")}
+if(!require(party)){install.packages("party")}
+if (!require(caret)){install.packages("caret")}
+if (!require(ggthemes)){install.packages("ggthemes")}
+if (!require(MASS)){install.packages("MASS")}
+if (!require(randomForest)){install.packages("randomForest")}
+if (!require(gridExtra)){install.packages("gridExtra")}
+if (!require(pastecs)){install.packages("pastecs")}
+if (!require(broom)){install.packages("broom")}
+if (!require(car)){install.packages("car")}
+if (!require(InformationValue)){install.packages("InformationValue")}
+if (!require(tree)){install.packages("tree")}
+if (!require(splitstackshape)){install.packages("splitstackshape")}
+if (!require(adabag)){install.packages("adabag")}
+if (!require(unbalanced)){install.packages("unbalanced")}
+if (!require(knitr)){install.packages("knitr")}
+
+library(xlsx)
+library(dplyr)
+library(plyr)
+library(party)
+library(caret)
+library(ggthemes)
+library(MASS)
+library(randomForest)
+library(ggplot2)
+library(gridExtra)
+library(pastecs)
+library(broom)
+library(car)
+library(InformationValue)
+library(tree)
+library(splitstackshape)
+library(adabag)
+library(unbalanced)
+library(knitr)
+```
+
+Read excel file data into R dataframe - 
+```{r}
+QWEchurn.df <- read.csv(file=file.choose(), header=TRUE, sep=",")
+```
+
+## <span style="color:blue">Question 1 - By visualizing the data (without any statistical test), can you claim that Wall's belief about the dependence of the churn rates on customer age is supported? </span>
+
+From the Churn rate plot, we can see that the average churn rate is low upto age 11 months, so new customers are not leaving immediately and then we see higher spikes after 12 months with some lows as well. This is indicative that upto 11 months churn is low. So Wall's belief that Churn depends on age is partially supported as it seems churn rate also depends on other factors including age.
+
+```{r Visualization}
+str(QWEchurn.df)
+sapply(QWEchurn.df, function(x) sum(is.na(x)))
+stat.desc(QWEchurn.df, basic=TRUE, desc=TRUE)
+colnames(QWEchurn.df) <- c("ID",	"Cust_Age_Months",	"Churn_Y_N", "CHI_Month_0", "CHI_Month_1",	"Support_Cases_Month_0", "Support_Cases_1",	"SP_Month_0",	"SP_Month_1",	"Logins_0_1",	"Blog_Articles_0_1",	"Views_0_1",	 "Days_Last_Login_0_1")
+
+aggr <- aggregate(QWEchurn.df$Churn_Y_N, list(QWEchurn.df$Cust_Age_Months), mean)
+colnames(aggr) <- c("CustomerAge" , "ChurnRate")
+rate.vec <- aggr$ChurnRate
+names(rate.vec) <-aggr$CustomerAge
+
+churnplot <- barplot(rate.vec, col=3, cex.axis = 1.5, cex.lab=1.5,cex.names=0.8, las=2, main="Customer Churn rate with Age", xlab="Customer Age (Months)", ylab = "Churn Rate")
+lines(churnplot, rate.vec, col = "red", lwd = 2)
+```
+
+## <span style="color:blue">Question 2 - Run a single regression model that best predicts the probability that a customer leave </span>
+
+From the counts of churn data (0,1) we can clearly see there exists a class bias. This is going to create probklems in prediction accuracy. As required by the question i have run Logistic regression as a model first using step wise to select model with best predictor variables on the full data set with any sampling. 
+
+```{r regression}
+QWEchurn.df$Churn_Y_N <-as.factor(QWEchurn.df$Churn_Y_N)
+table(QWEchurn.df$Churn_Y_N)
+
+QWEchurn.df <- QWEchurn.df[complete.cases(QWEchurn.df),]
+QWEchurn <- QWEchurn.df[, 2:13]
+full.model <- glm(Churn_Y_N ~., data = QWEchurn, family = binomial)
+as.data.frame(coef(full.model))
+
+step.model <- full.model %>% stepAIC(trace = FALSE)
+as.data.frame(coef(step.model))
+summary(step.model)
+```
+
+From step wise regression we can see that only (Cust_Age_Months, CHI_Month_0, CHI_Month_1, Support_Cases_Month_0, Support_Cases_1, Views_0_1, Days_Last_Login_0_1) come out as significant predictors. Hence we now run a prediction with this model and compare accuracy with full model. We can see that we get the same accuracy with step model as with full model and the confusion matrix is suggestive of a very poor prediction accuracy. 
+
+
+```{r Predictions}
+# Make predictions - Full Model
+probabilitiesFM <- full.model %>% predict(QWEchurn, type = "response")
+optCutOff <- optimalCutoff(QWEchurn$Churn_Y_N, probabilitiesFM)[1] 
+misClassError(QWEchurn$Churn_Y_N, probabilitiesFM, threshold = optCutOff)
+plotROC(QWEchurn$Churn_Y_N, probabilitiesFM)
+Concordance(QWEchurn$Churn_Y_N, probabilitiesFM)
+confusionMatrix(QWEchurn$Churn_Y_N, probabilitiesFM, threshold = optCutOff)
+
+probabilitiesSM <- step.model %>% predict(QWEchurn, type = "response")
+optCutOff <- optimalCutoff(QWEchurn$Churn_Y_N, probabilitiesSM)[1] 
+misClassError(QWEchurn$Churn_Y_N, probabilitiesSM, threshold = optCutOff)
+plotROC(QWEchurn$Churn_Y_N, probabilitiesSM)
+Concordance(QWEchurn$Churn_Y_N, probabilitiesSM)
+confusionMatrix(QWEchurn$Churn_Y_N, probabilitiesSM, threshold = optCutOff)
+
+predicted.classes <- ifelse(probabilitiesSM > optCutOff, 1, 0)
+QWEchurnComb <- QWEchurn
+QWEchurnComb$Predicted <- predicted.classes
+QWEchurnComb$PredictProbability <- probabilitiesSM
+print("True Negative Rate:")
+specificity(QWEchurn$Churn_Y_N, predicted.classes, threshold = optCutOff)
+print("True Positive Rate:")
+sensitivity(QWEchurn$Churn_Y_N, predicted.classes, threshold = optCutOff)
+
+print("Probability of Cutomer 672 leaving: ")
+(Customer672 <-  probabilitiesSM[672])
+print("Probability of Cutomer 354 leaving: ")
+(Custome354 <-  probabilitiesSM[354])
+print("Probability of Cutomer 5203 leaving: ")
+(Custome5203 <-  probabilitiesSM[5203])
+(Cust_672_354_5203 <- rbind(QWEchurnComb[c(672,354,5203),c("Churn_Y_N","Predicted","PredictProbability")]))
+```
+
+Customer 672 churn prediction probability is 0.03837482 which is very low and he did not leave in actual dataset. Also Customers 354 (p = 0.04850027 ) and 5203 (p= 0.04202261) did not leave in actual dataset and they were predicted as not leaving by our model as well. However the model prediction of actual (True positive) customer churn is abysmal at 1 / 323 = 0.3%.
+
+## <span style="color:blue">Question 3 - How sensible is the approach with a single model? Can you suggest a better approach? </span>
+
+The approach with just single model is not sensible as we have not got a good True positive accuracy. This low accuracy rate for true positive is largely due to class bias that I highlighted earlier i.e. only 5% of total data set has positive or 1 values. This results in the single model treating low share class as error. Ideally the share of positive and negative should be 50-50%. I have also noticed that a lot of the customer records have mostly 0's for all attributes except Age. This could also influence our results and sampling will reduce this impact to some extent. Its better to try ensemble models which combine weak learners to create a strong learner that can make accurate predictions such as boosting algorithms.
+ Also, I have not considered any feature engineering so far and used only raw data. Feature engineering also important step of model selection. 
+First, we start with a stratified sample of the original dataset to boost the positive (1) share to 30%. We then run stepwise regression model but this time only with significant predictor variables identified earlier -
+
+```{r Stratified sampling}
+QWEchurnStrat <- stratified(QWEchurn.df, c("Churn_Y_N"), size = c(.1,.8))
+
+# output<- QWEchurn.df$Churn_Y_N
+# output<-as.factor(output)
+# input<- QWEchurn.df[ ,-3]
+# data <-ubBalance(X= input, Y=output, type="ubSMOTE", percOver=300, percUnder=150, verbose=TRUE)
+# QWEchurnStrat<-cbind(data$X,Churn_Y_N = data$Y)
+# ix <- 1:12
+# QWEchurnStrat[ix] <- lapply(QWEchurnStrat[ix], as.numeric) 
+
+rowstoadd <- c(672,354,5203)
+for (i in 1:3)
+{
+    row_to_find <- data.frame(QWEchurn.df[rowstoadd[i],])
+    if(length(match_df(QWEchurnStrat, row_to_find)) > 0)
+    {
+      QWEchurnStrat <- rbind(QWEchurnStrat, QWEchurn.df[rowstoadd[i],])
+    }
+}
+
+table(QWEchurnStrat$Churn_Y_N)
+
+full.model <- glm(Churn_Y_N ~Cust_Age_Months	+ CHI_Month_0 + CHI_Month_1 + Support_Cases_Month_0 + Support_Cases_1 + Views_0_1 + Days_Last_Login_0_1, data = QWEchurnStrat, family = binomial)
+
+step.model <- full.model %>% stepAIC(trace = FALSE)
+as.data.frame(coef(step.model))
+
+probabilitiesSM <- step.model %>% predict(QWEchurnStrat, type = "response")
+optCutOff <- optimalCutoff(QWEchurnStrat$Churn_Y_N, probabilitiesSM)[1] 
+misClassError(QWEchurnStrat$Churn_Y_N, probabilitiesSM, threshold = optCutOff)
+plotROC(QWEchurnStrat$Churn_Y_N, probabilitiesSM)
+Concordance(QWEchurnStrat$Churn_Y_N, probabilitiesSM)
+confusionMatrix(QWEchurnStrat$Churn_Y_N, probabilitiesSM, threshold = optCutOff)
+
+predicted.classes <- ifelse(probabilitiesSM > optCutOff, 1, 0)
+QWEchurnCombSt <- QWEchurnStrat
+QWEchurnCombSt$Predicted <- predicted.classes
+QWEchurnCombSt$PredictProbability <- probabilitiesSM
+print("True Negative Rate:")
+specificity(QWEchurnCombSt$Churn_Y_N, predicted.classes, threshold = optCutOff)
+print("True Positive Rate:")
+sensitivity(QWEchurnCombSt$Churn_Y_N, predicted.classes, threshold = optCutOff)
+
+print("New probability of Cutomers 672, 354, 5203 leaving: ")
+(Customers <-  QWEchurnCombSt[QWEchurnCombSt$ID %in% c("672", "354","5203"), c("Churn_Y_N","Predicted","PredictProbability")])
+```
+
+We can see from above output that true positive rate has gone up substantially with the stratified sample. This is encouraging. 
+Next we try the Adaptive Boosting (Adaboost) algorithm for classifation model, using the same stratified sample.  
+
+```{r Other models}
+adaboost<-boosting(Churn_Y_N~Cust_Age_Months	+ CHI_Month_0 + CHI_Month_1 + Support_Cases_Month_0 + Support_Cases_1 + Views_0_1 + Days_Last_Login_0_1, data=QWEchurnStrat, boos=TRUE, mfinal=100,coeflearn='Breiman')
+pred <- predict(adaboost,QWEchurn.df)
+print("AdaBoost Test Accuracy")
+print(1-pred$error)
+QWEchurnAda <- cbind(QWEchurn.df, predicted = as.numeric(pred$class), PredictProbability = as.numeric(pred$prob[,2]))
+
+print("True Negative Rate:")
+specificity(QWEchurnAda$Churn_Y_N, QWEchurnAda$predicted, threshold = 0.5)
+print("True Positive Rate:")
+sensitivity(QWEchurnAda$Churn_Y_N, QWEchurnAda$predicted, threshold = 0.5)
+print("New probability of Cutomers 672, 354, 5203 leaving: ")
+(Customers <-  QWEchurnAda[QWEchurnAda$ID %in% c("672", "354","5203"), c("ID", "Churn_Y_N","predicted","PredictProbability")])
+importanceplot(adaboost)
+
+errorevol(adaboost,QWEchurnStrat)->evolada
+plot.errorevol(evolada)
+
+t1<-adaboost$trees[[1]]
+plot(t1)
+text(t1,pretty=0)
+```
+
+Using Adaboost with 100 iterations (trees) we have achieved a true positive prediction accuracy of 98% and that of true negative is accuracy is 99% with the stratified sample. This is indeed remarkably good. I have then used the adaboost model to predict the full data set and I got a true positive prediction accuracy of 85% and that of true negative is accuracy of 86%.
+
+However, The stratified (under) sampling technique has several short comings - 
+It can remove potentially useful records which might have value for building rule classifiers.
+The sample chosen by random stratified sampling may be a biased sample.
+One option is to use Synthetic Minority Over-sampling Technique (SMOTE)  to avoid issues with random under sampling or stratified sampling.
+
+Below is an adaboost model using SMOTE approach of sampling -
+
+```{r adaboost with SMOTE}
+output<- QWEchurn.df$Churn_Y_N
+output<-as.factor(output)
+input<- QWEchurn.df[ ,-3]
+data <-ubBalance(X= input, Y=output, type="ubSMOTE", percOver=300, percUnder=150, verbose=TRUE)
+QWEchurnStrat<-cbind(data$X,Churn_Y_N = data$Y)
+
+adaboost<-boosting(Churn_Y_N~Cust_Age_Months	+ CHI_Month_0 + CHI_Month_1 + Support_Cases_Month_0 + Support_Cases_1 + Views_0_1 + Days_Last_Login_0_1, data=QWEchurnStrat, boos=TRUE, mfinal=100,coeflearn='Breiman')
+pred <- predict(adaboost,QWEchurn.df)
+print("AdaBoost Test Accuracy")
+print(1-pred$error)
+QWEchurnAda <- cbind(QWEchurn.df, predicted = as.numeric(pred$class), PredictProbability = as.numeric(pred$prob[,2]))
+
+print("True Negative Rate:")
+specificity(QWEchurnAda$Churn_Y_N, QWEchurnAda$predicted, threshold = 0.5)
+print("True Positive Rate:")
+sensitivity(QWEchurnAda$Churn_Y_N, QWEchurnAda$predicted, threshold = 0.5)
+importanceplot(adaboost)
+```
+
+The probabilities of Customers 672, 354, 5203 after fitting adaboost tree model is shown below -
+
+Based on the importance plot we can see that CHI, Customer Age and Views are the top 3 reasons / predictors of Churn.
+
+Below is a list of 100 customers most likely to churn - 
+
+```{r 100 Customer likely to churn}
+QWEchurnAdaSorted <- QWEchurnAda[order(-QWEchurnAda$PredictProbability),] 
+CustLikelyChurn <- QWEchurnAdaSorted[1:100, ]
+kable(CustLikelyChurn, caption ="Top 100 Customer likely to churn")
+```
