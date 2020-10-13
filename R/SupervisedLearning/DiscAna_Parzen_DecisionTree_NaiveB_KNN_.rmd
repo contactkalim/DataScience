@@ -1,0 +1,758 @@
+---
+title: <span style="color:black">"DMG2 Assignment- by Shadab Kalim"</span>
+output:
+  word_document: default
+  fontsize: 12pt
+  html_document:
+    df_print: paged
+---
+
+Install the libraries to be used for Assignment.
+
+```{r setup}
+if (!require(knitr)){install.packages("knitr")}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+knitr::opts_chunk$set(fig.width=10, fig.height=6) 
+if (!require(MASS)){install.packages("MASS")}
+if (!require(ggplot2)){install.packages("ggplot2")}
+if (!require(corrplot)){install.packages("corrplot")}
+if (!require(magrittr)){install.packages("magrittr")}
+if (!require(GGally)){install.packages("GGally")}
+if (!require(stringi)){install.packages("stringi")}
+if (!require(data.tree)){install.packages("data.tree")}
+if (!require(plyr)){install.packages("plyr")}
+if (!require(miscTools)){install.packages("miscTools")}
+if (!require(rpart)){install.packages("rpart")}
+if (!require(caret)){install.packages("caret")}
+if (!require(h2o)){install.packages("h2o")}
+if (!require(dplyr)){install.packages("dplyr")}
+if (!require(rattle)){install.packages("rattle")}
+if (!require(rpart.plot)){install.packages("rpart.plot")}
+if (!require(RColorBrewer)){install.packages("RColorBrewer")}
+if (!require(tcltk)){install.packages("tcltk")}
+if (!require(data.table)){install.packages("data.table")}
+if (!require(e1071)){install.packages("e1071")}
+if (!require(sparsediscrim)){install.packages("sparsediscrim")}
+if (!require(devtools)){install.packages("devtools")}
+library(devtools)
+install_github('ramhiser/sparsediscrim')
+if (!require(rfUtilities)){install.packages("rfUtilities")}
+if (!require(class)){install.packages("class")}
+if (!require(ks)){install.packages("ks")}
+if (!require(tidytext)){install.packages("tidytext")}
+if (!require(tidyr)){install.packages("tidyr")}
+if (!require(purrr)){install.packages("purrr")}
+if (!require(readr)){install.packages("readr")}
+if (!require(widyr)){install.packages("widyr")}
+if (!require(stringr)){install.packages("stringr")}
+if (!require(tm)){install.packages("tm")}
+if (!require(naivebayes)){install.packages("naivebayes")}
+if (!require(sqldf)){install.packages("sqldf")}
+if (!require(NLP)){install.packages("NLP")}
+if (!require(readtext)){install.packages("readtext")}
+
+library(MASS)
+library(ggplot2)
+library(corrplot)
+library(magrittr)
+library(GGally)
+library(data.tree)
+library(stringi)
+library(plyr)
+library(miscTools)
+library(rpart)
+library(caret)
+library(h2o)
+library(dplyr) 
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+library(tcltk)
+library(data.table)
+library(e1071)
+library(sparsediscrim)
+library(rfUtilities)
+library(class) 
+library(ks)
+library(tidytext)
+library(tidyr)
+library(purrr)
+library(readr)
+library(widyr)
+library(stringr)
+library(tm)
+library(naivebayes)
+library(sqldf)
+library(NLP)
+library(readtext)
+```
+## <span style="color:red">P1 : IRIS -HIERARCHICALFISHER - </span>
+
+Read the excel file Dataset for IRIS to R data frame:
+
+```{r read file}
+IRIS.train.df <- read.csv(file=file.choose(), header=TRUE, sep=",", stringsAsFactors =TRUE)
+IRIS.test.df <- read.csv(file=file.choose(), header=TRUE, sep=",", stringsAsFactors =TRUE)
+colnames <- c('row_num','sepal_length', 'sepal_width','petal_length', 'petal_width', 'species')
+colnames(IRIS.train.df) <- colnames
+colnames(IRIS.test.df) <- colnames
+IRIS.train.df <- IRIS.train.df[,-1]
+IRIS.test.df <- IRIS.test.df[,-1]
+IRISFORPLT <- rbind(IRIS.train.df, IRIS.test.df)
+```
+
+### <span style="color:blue">Two classes in IRISare more "similar" to each other. Find which ones using scatter plots. Lets say class 1 and class 2. </span>
+
+Combining the 2 datasets for the pupose of scatter plots only using GGally package - 
+
+```{r Scatter Plots}
+plt <- ggpairs(IRISFORPLT, aes(color = species))+ theme_grey(base_size = 8)
+for(i in 1:plt$nrow) {
+  for(j in 1:plt$ncol){
+    plt[i,j] <- plt[i,j] + 
+        scale_fill_manual(values=c("#00AFBB", "#E7B800", "#FC4E07")) +
+        scale_color_manual(values=c("#00AFBB", "#E7B800", "#FC4E07"))  
+  }
+}
+
+print(plt + ggplot2::theme_grey(base_size = 8), progress = F)
+
+```
+
+From the various scatter plots between sepal and petal fearure columns, we can clearly see that Setosa class is quite different from Virginica and Versicolor which are similar.
+
+### <span style="color:blue">Lets create a "meta-class" combining class 1 and class 2 (or whichever are the two most similar classes).Lets call it class 4.</span>
+
+I have combined Virginica and Versicolor (as they are similar classes from scatter plots above) into one class named 4 by adding a new column MetaClass - 
+
+```{r Meta Class}
+IRIS.train.df$MetaClass <- 'Class4'
+IRIS.train.df$MetaClass[IRIS.train.df$species == "setosa"] <- "setosa"
+IRIS.train.df$MetaClass <-as.factor(IRIS.train.df$MetaClass)
+```
+
+### <span style="color:blue">Create the first Fisher projection by trying to discriminate class 3 (the different class) from class 4 (the meta-class). Do this on training data only -</span>
+
+
+```{r FDA}
+ldatrainMeta = lda(formula = MetaClass ~ sepal_length + sepal_width + petal_length + petal_width , data = IRIS.train.df)
+projected <- as.matrix(IRIS.train.df[,1:4])%*%ldatrainMeta$scaling
+projected.df <- data.frame(projected,IRIS.train.df$MetaClass)
+ggplot(projected.df, aes(x=(1:length(LD1)), y=LD1, color=IRIS.train.df.MetaClass, shape=IRIS.train.df.MetaClass)) + 
+  geom_point()+
+  labs(title="Fisher Discriminant : Projection of Setosa and MetaClass",
+       x="Observations", y = "Fisher Discriminant")
+```
+
+### <span style="color:blue">Create the second Fisher projection by trying to discriminate class 1 from class 2 (the original two similar classes). Do this on training data only -</span>
+
+```{r FDA Class 1 and 2}
+IRIS.train.df_1_2 <- IRIS.train.df[IRIS.train.df$MetaClass %in% c("Class4"), ]
+ldatrain_1_2 <- lda(formula = species ~ sepal_length + sepal_width + petal_length + petal_width, data = IRIS.train.df_1_2)
+projected_2 <- as.matrix(IRIS.train.df_1_2[,1:4])%*%ldatrain_1_2$scaling
+projected_2.df <- data.frame(projected_2,IRIS.train.df_1_2$species)
+ggplot(projected_2.df, aes(x=(1:length(LD1)), y=LD1, color=IRIS.train.df_1_2.species, shape=IRIS.train.df_1_2.species)) + 
+  geom_point()+
+  labs(title="Fisher Discriminant : Projection of Virginica and Versicolor",
+       x="Observations", y = "Fisher Discriminant")
+```
+
+### <span style="color:blue">Now project the entire data in these two projections and color code the class points. Do this on test data only -</span>
+
+```{r Project Entire Dataset}
+projection_1 <- predict(ldatrainMeta,newdata = IRIS.test.df)
+projection_2 <- predict(ldatrain_1_2,newdata = IRIS.test.df) 
+
+FDA.df <- data.frame(projection_1$x, projection_2$x,IRIS.test.df$species)
+
+ggplot(FDA.df, aes(x=LD1, y=LD1.1, color=IRIS.test.df.species, shape=IRIS.test.df.species)) + 
+  geom_point()+
+  labs(title="Fisher Discriminant : Projection of All Classes",
+       x="Fisher Projection 1", y = " Fisher Projection 2")
+```
+
+### <span style="color:blue">Comment on what you observed and did. -</span>
+
+We performed LDA which attempts to perform a linear regression type class separation my minimizing errors by estimating p-1 linear discriminants to find a linear class separation. When we combined similar classes LDA and performed LDA, we could clearly separate using LDA as the classes have different mean and variances. LDA uses constant variance model.
+
+LDA was effective in clearly separating the close classes Virginica and Versicolor also. However when all three classes were used LDA provided lesser clear separatin bewteen close classes Virginica and Versicolor, this is because LDA uses single Gaussian per class with a constant covariance matrix.
+
+## <span style="color:red">P2 : MUSHROOM informationgain - </span>
+
+### <span style="color:blue">Take the MUSHROOM training data. There are 20+ features and 2 classes. We want to find the BEST feature using the three purity measures: Accuracy, Gini Index, and Entropy. -</span>
+
+Looking at the dataset we can see that it contains mostly Nominal data data reducing our decision tree to a Classification tree. Unlike a regression tree, residual sum of squares cannot be used as a criterion for making the binary splits and we have to use Accuracy (Classification error), Gini Index and Entropy. 
+Also column Veil Type has only one value (p) providing no benefit in classification and can be removed.
+
+```{r Data prep}
+Mush.train.df <- read.csv(file=file.choose(), header=TRUE, sep=",", stringsAsFactors =TRUE)
+Mush.test.df <- read.csv(file=file.choose(), header=TRUE, sep=",", stringsAsFactors =TRUE)
+colnames <- c('row_num',"class",'cap_shape', 'cap_surface','cap_color', 'bruises', 'odor','gill_attachment', 'gill_spacing','gill_size', 'gill_color', 'stalk_shape', 'stalk_root', 'stalk_sur_a_ring','stalk_sur_b_ring', 'stalk_col_a_ring','stalk_col_b_ring', 'veil_type', 'veil_color' , 'ring_number','ring_type', 'spore_print_color', 'population','habitat')
+colnames(Mush.train.df) <- colnames
+colnames(Mush.test.df) <- colnames
+Mush.train.df <- Mush.train.df[,-1]
+Mush.test.df <- Mush.test.df[,-1]
+str(Mush.train.df)
+
+#Mush.train.df <- Mush.train.df[ , -which(names(Mush.train.df) %in% c("veil_type"))]
+#Mush.test.df <- Mush.test.df[ , -which(names(Mush.test.df) %in% c("veil_type"))]
+
+curve(-x * log2(x) - (1-x)*log2(1-x), col = "red", ylab = "enthropy", lwd = 4)
+```
+
+### <span style="color:blue">For each feature, partition the data into k regions where k is the number of values the feature can take. Measure the Information gain due to each feature. Generate a table with the following columns: Feature_name, Accuracy, GINI index, 1- Entropy (NOTE: Use log_k for a feature with k values)</span>
+
+I have assumed that Gini Index refers to 1 - GiniPurity (as per literature available online) and have done calculations accordingly as per formula. As the Mushroom dataset is a 2 class classification problem our Gini Index will be less than 0.5 for all features. (image sourced from https://www.listendata.com/2015/04/decision-tree-in-r.html) - 
+
+```{r pressure, echo=FALSE, fig.cap="Gini Formula", out.width = '100%'}
+knitr::include_graphics("GiniFormula.png")
+```
+
+```{r Accuracy, Gini, Entropy}
+Accuracy <-function(targetClass,feature)
+{
+  # tab.cross <- table(targetClass,feature)
+  # csum <- as.vector(colSums(tab.cross))
+  # sumtotal<- sum(tab.cross)
+  # probs <- vector()
+  # for(i in 1:length(csum))
+  # {
+  #   prob <- csum[i]/sumtotal
+  #   probs <- c(probs,prob)
+  # }
+  # return(max(probs))
+  tab.cross <- table(targetClass,feature)
+  prob.cross <- prop.table(tab.cross)
+  return(max(prob.cross))
+}
+GINI_Index=function(target,feature){
+T=table(target,feature)
+nx=apply(T,2,sum)
+pxy=T/matrix(rep(nx,each=2),2,ncol(T))
+vxy=pxy*(1-pxy)
+zx=apply(vxy,2,sum)
+n=sum(T)
+sum(nx/n*zx)
+}
+Entropy <- function( ptab ) {
+  res <- ptab/sum(ptab) * log2(ptab/sum(ptab))
+  res[ptab == 0] <- 0
+  -sum(res)
+}
+InformationGain <- function( tble ) {
+  tble <- as.data.frame.matrix(tble)
+  entropyBefore <- Entropy(colSums(tble))
+  s <- rowSums(tble)
+  entropyAfter <- sum (s / sum(s) * apply(tble, MARGIN = 1, FUN = Entropy ))
+  entropy_1 <- 1-entropyAfter
+  informationGain <- entropyBefore - entropyAfter
+  return (c(entropy_1, informationGain))
+}
+mush.colnames <- colnames[colnames!=c("row_num","class")]
+target <- "class"
+OutputTable <- data.frame(matrix(ncol = 5, nrow = 0))
+opcolnames <- c("Feature_name","Accuracy","GINI_Index","One_Minus_Entropy","Info_gain")
+colnames(OutputTable) <- opcolnames
+for(colname in mush.colnames)
+{
+  i <- 1
+  Accu <- Accuracy(Mush.train.df[,target], Mush.train.df[,colname])
+  giniindex <- GINI_Index(Mush.train.df[,target], Mush.train.df[,colname])
+  ent_ig <- InformationGain(table(Mush.train.df[,c(colname, target)]))
+  feature.row <- c(colname, round(Accu,4), round(giniindex,4), round(ent_ig[1],4), round(ent_ig[2],4))
+  opmat <- as.matrix(OutputTable)
+  OutputTable <- insertRow(opmat,i,feature.row) #rbind(OutputTable, feature.row)
+  i <- i + 1
+}
+OutputTable.df <- as.data.frame(OutputTable, stringsAsFactors = FALSE)
+Feature_name <- OutputTable.df$Feature_name
+OutputTable.df <- as.data.frame(sapply(OutputTable.df[,2:5], as.numeric))
+OutputTable.df <- cbind(Feature_name, OutputTable.df)
+OutputTable.df
+
+treemodel <- rpart(class~., data=Mush.train.df, parms=list(split='gini'))
+as.data.frame(treemodel$variable.importance)
+
+treemodel <- rpart(class~., data=Mush.train.df, parms=list(split='info'))
+as.data.frame(treemodel$variable.importance)
+```
+
+<b>Based on the data above we can find that the features with lowest Gini Index and higest Information gain is odor, this is also in sync with the variables of importance table from rpart method of rpart using both Gini and Info gain.</b>
+
+### <span style="color:blue">Plot accuracy vs. 1 - Entropy scatter plot where each point is a feature.</span>
+
+```{r Scatter plot}
+ggplot(OutputTable.df, aes(x=Accuracy, y=One_Minus_Entropy)) + geom_point(size=4, color="blue") + 
+  geom_text(label=Feature_name)
+```
+
+## <span style="color:red">P3 : MUSHROOM NB/DT - </span>
+
+### <span style="color:blue">Build Naïve Bayes and Decision Tree classifiers on the MUSHROOM training dataset. -</span>
+
+```{r NB, DT}
+h2o.no_progress()
+h2o.init()
+
+print("############# Naive Bayes Classifier###################")
+X <- names(Mush.train.df[,-1])
+Y <- "class"
+train.mush.h2o <- Mush.train.df %>%  mutate_if(is.factor, factor, ordered = FALSE) %>%  as.h2o()
+test.mush.h2o <- Mush.test.df %>%  mutate_if(is.factor, factor, ordered = FALSE) %>%  as.h2o()
+
+nb.h2o <- h2o.naiveBayes(x = X, y = Y, training_frame = train.mush.h2o, nfolds = 10, laplace = 0)
+h2o.confusionMatrix(nb.h2o)
+
+print("############# Decision Tree Classifier#################")
+treemodel <- rpart(class~., data=Mush.train.df,  parms=list(split='info'),control = rpart.control(cp = 0))
+pred.tr <- predict(treemodel,Mush.train.df,type = "class")
+accuracy_tr <- mean(pred.tr == Mush.train.df$class)
+accuracy_tr
+tot_count <- function(x, labs, digits, varlen)
+{paste(labs, "\n\nn =", x$frame$n)}
+
+prp(treemodel, faclen = 0, cex = 0.8, node.fun=tot_count)
+```
+
+### <span style="color:blue">InNaïve Bayesclassifier plot the value of lambda (x-axis)for Laplacian smoothing against training and test set accuracy. Lambda = 0, 1, 2, ., 50 -</span>
+
+I have tried Laplace smoothing 2 ways - one using package e1071 and another using package h2o, h2o provided higher accuracy with Naive Bayes so plotted using both, however the effect of Laplace smoothing is same in both implementations i.e. accuracy increases for laplace of 1 and then starts to decrease.
+
+```{r Plot Laplace,accuracy}
+# using library e1071
+laplace.vec = seq(0, 50, by = 1)
+trainAcc <- vector()
+testAcc <- vector()
+for(lap in laplace.vec)
+{
+  NBclassfier=naiveBayes(class~., data=Mush.train.df, laplace = lap)
+  testPred=predict(NBclassfier, newdata=Mush.test.df, type="class")
+  testTable=table(Mush.test.df$class, testPred)
+  testAccur=(testTable[1,1]+testTable[2,2])/sum(testTable)
+  trainPred=predict(NBclassfier, newdata=Mush.train.df, type="class")
+  trainTable=table(Mush.train.df$class, trainPred)
+  trainAccur=(trainTable[1,1]+trainTable[2,2])/sum(trainTable)
+  testAcc <- c(testAcc, testAccur)
+  trainAcc <- c(trainAcc, trainAccur)
+}
+e1071.nb.laplace <- as.data.frame(cbind(laplace = seq(0, 50, by = 1), trainAcc, testAcc))
+colnames(e1071.nb.laplace) <- c("Laplace", "Accuracy_Train", "Accuracy_Test")
+e1071.nb.laplace
+plot(as.vector(e1071.nb.laplace$Laplace), as.vector(e1071.nb.laplace$Accuracy_Train), type="o", col="red", pch="o",xlab="Lambda - Laplace",ylab="Accuracy", main ="From e1071", ylim=c(0.91,0.95) )
+points(as.vector(e1071.nb.laplace$Laplace), as.vector(e1071.nb.laplace$Accuracy_Test), col="blue", pch="*")
+lines(as.vector(e1071.nb.laplace$Laplace), as.vector(e1071.nb.laplace$Accuracy_Test), col="blue")
+legend(40, 0.915, legend=c("Train", "Test"), col=c("red", "blue"), lty=1:2, cex=1)
+
+# using library h2o
+hyper_params <- list(laplace = seq(0, 50, by = 1))
+train.grid <- h2o.grid(algorithm = "naivebayes",  grid_id = "nb_grid_train", x = X, y = Y, training_frame = train.mush.h2o,  nfolds = 10, hyper_params = hyper_params)
+sorted_train_grid <- h2o.getGrid("nb_grid_train", sort_by = "accuracy", decreasing = FALSE)
+test.grid <- h2o.grid(algorithm = "naivebayes",  grid_id = "nb_grid_test", x = X, y = Y, training_frame = test.mush.h2o,  nfolds = 10, hyper_params = hyper_params)
+sorted_test_grid <- h2o.getGrid("nb_grid_test", sort_by = "accuracy", decreasing = FALSE)
+
+lap_accuracy_train <- as.data.frame(cbind(as.numeric(sorted_train_grid@summary_table$laplace), as.numeric(sorted_train_grid@summary_table$accuracy)))
+colnames(lap_accuracy_train) <- c("Laplace_Train", "Accuracy_Train")
+lap_accuracy_test <- as.data.frame(cbind(as.numeric(sorted_test_grid@summary_table$laplace), as.numeric(sorted_test_grid@summary_table$accuracy)))
+colnames(lap_accuracy_test) <- c("Laplace_Test", "Accuracy_Test")
+lap_accuracy_train <- lap_accuracy_train[order(lap_accuracy_train$Laplace_Train),] 
+lap_accuracy_test <- lap_accuracy_test[order(lap_accuracy_test$Laplace_Test),] 
+lap_accuracy <- as.data.frame(cbind(lap_accuracy_train,lap_accuracy_test))
+colnames(lap_accuracy) <- c("Laplace_Train", "Accuracy_Train", "Laplace_Test", "Accuracy_Test")
+h2o.shutdown(prompt = FALSE)
+
+plot(as.vector(lap_accuracy$Laplace_Train), as.vector(lap_accuracy$Accuracy_Train), type="o", col="red", pch="o",xlab="Lambda - Laplace",ylab="Accuracy", main ="From h2o",ylim=c(0.95,0.98) )
+points(as.vector(lap_accuracy$Laplace_Train), as.vector(lap_accuracy$Accuracy_Test), col="blue", pch="*")
+lines(as.vector(lap_accuracy$Laplace_Train), as.vector(lap_accuracy$Accuracy_Test), col="blue")
+legend(40, 0.975, legend=c("Train", "Test"), col=c("red", "blue"), lty=1:2, cex=1.2)
+```
+
+### <span style="color:blue">For decision tree classifier plot the SizeThreshold (x-axis) against training and test set accuracy. SizeThreshold = 4, 8, 12, 16, 20, .,64. -</span>
+
+```{r Plot SizeThreshold, Accuracy}
+SizeThreshold <- c(seq(4, 64, by = 4))# 4,8,16,20,....64
+STTable <- data.frame(matrix(ncol = 3, nrow = 0))
+stcolnames <- c("SizeThreshold","Accuracy_Train","Accuracy_Test")
+colnames(STTable) <- stcolnames
+for(i in 1:length(SizeThreshold))
+{
+  treemodel.tr <- rpart(class~., data=Mush.train.df, parms=list(split='gini'), control = rpart.control(cp = 0, minsplit = SizeThreshold[i]))
+  #treemodel.tr.pruned <- prune(treemodel.tr, minsplit =  SizeThreshold[i])
+  pred.tr <- predict(treemodel.tr,Mush.train.df,type = "class")
+  accuracy_tr <- mean(pred.tr == Mush.train.df$class)
+  #treemodel.test <- rpart(class~., data=Mush.test.df, parms=list(split='gini'), control = rpart.control(cp = 0, minsplit = SizeThreshold[i]))
+  pred.test <- predict(treemodel.tr,Mush.test.df,type = "class")
+  accuracy_test <- mean(pred.test == Mush.test.df$class)
+  opmat <- as.matrix(STTable)
+  t.row <- c(SizeThreshold[i],accuracy_tr, accuracy_test)
+  STTable <- insertRow(opmat,i,t.row) 
+}
+STTable <- as.data.frame(STTable, stringsAsFactors = FALSE)
+STTable <- STTable[order(STTable$SizeThreshold),]
+STTable
+
+plot(as.vector(STTable$SizeThreshold), as.vector(STTable$Accuracy_Train), type="o", col="red", pch="o",xlab="Size Threshold",ylab="Accuracy",ylim=c(0.993, 0.99999) )
+points(as.vector(STTable$SizeThreshold), as.vector(STTable$Accuracy_Test), col="blue", pch="*")
+lines(as.vector(STTable$SizeThreshold), as.vector(STTable$Accuracy_Test), col="blue")
+legend(10, 0.996, legend=c("Train", "Test"), col=c("red", "blue"), lty=1:2, cex=1.2)
+```
+
+### <span style="color:blue">Find the best values of lambda and SizeThreshold where the test set accuracies starts to decrease. -</span>
+
+From the plots and tabelled data below for Laplace and Size Threshold, we can see that test accuracy falls from a Laplace value of 2 and for Size Threshold test accuracy (tree built using Gini) falls from 8  and then 40 onwards as highlighted. Hence the best Laplace value is 1 and SizeThreshold is 8 or 4. 
+
+```{r Best Laplace,SizeThreshold}
+print("Naive Bayes from h2o")
+lap_accuracy
+print("Naive Bayes from e1071")
+e1071.nb.laplace
+print("From Decision tree")
+STTable
+```
+
+### <span style="color:blue">Compare those accuracies across the two classifiers. -</span>
+
+From the accuracy table of Laplace smoothing we can see that the accuracy rises from the Test accuracy of 0.975 (h2o) for 0 to 0.978 for Laplace correction of 1 and then the Accuracy falls with each unit increment of Laplace correction. Similar pattern is observed for output from e1071 library. The max - min value of test accuracy is 0.027 for Laplace which is much higher than Size Threshold and increasing Laplace beyond 1 is counter productive.
+
+From the decision tree plot built using GINI we can that most nodes dont get affected by SizeThreshold as the n values are large. From Test accuracy also we can see only slight drops in accuracy for increase in SizeThreshold, even though the graph for test suggests a dramtic drop but the scale is to decimal place of 3 hence its a very fine grain scale and drop is not very much as can be seen from difference in max -min test accuracy of 0.005.
+
+```{r max - min}
+# Accuracy difference max -min
+print("Naive Bayes - Difference in max - min test accuracy from e1071")
+(naiveB.diff <- max(e1071.nb.laplace$Accuracy_Test) - min(e1071.nb.laplace$Accuracy_Test))
+print("Naive Bayes - Difference in max - min test accuracy from h20")
+(naiveB.diff <- max(lap_accuracy$Accuracy_Test) - min(lap_accuracy$Accuracy_Test))
+print("Decision Tree - Difference in max - min test accuracy")
+(DT.diff <- max(STTable$Accuracy_Test) - min(STTable$Accuracy_Test))
+```
+
+## <span style="color:red">P4 : MNISTBayesian - </span>
+
+### <span style="color:blue">Take the MNIST dataset. Lets call it D0 dataset -</span>
+
+I have taken the MNIST csv files and created a D0 and MNIST test dataset by adding the label column.
+
+```{r D0}
+#Select all files together (train and test separately)
+D0 <- data.frame(matrix(ncol = 785, nrow = 0))
+getMNISTDataSet <- function(D0)
+{
+  i <- 0
+  flist <- tk_choose.files() # Multi select dialog
+  flist <- sort(flist)
+  for(file.p in flist)
+  {
+    D0.temp <- read.csv(file=file.p, header=TRUE, sep=",", stringsAsFactors =FALSE)
+    D0.temp <- D0.temp[,-1]
+    labels <- rep(i,nrow(D0.temp))
+    D0.temp <- cbind(labels,D0.temp)
+    D0 <- rbind(D0,D0.temp)
+    i <- i + 1
+  }
+  return(D0)
+}
+D0 <-getMNISTDataSet(D0)
+MNIST.test <- data.frame(matrix(ncol = 785, nrow = 0))
+MNIST.test <- getMNISTDataSet(MNIST.test)
+D0 <- rbind(D0,MNIST.test)
+D0 <- na.omit(D0)
+```
+
+### <span style="color:blue">Do a 9 dimensional PCA projection. Lets call it D1 dataset -</span>
+
+I have performed PCA and then used the first 9 components (dimensions) for projection. The first 25 images for digits have been printed.
+
+```{r D1}
+set.seed(123)
+D0.No_0_Var <- D0[,-(which((1:784)%%28<=2|(1:784)%%28>=26|1:784%/%28<=2|1:784%/%28>=26)+1)]
+D0.PCA <- D0.No_0_Var
+D0.PCA <- D0.PCA[complete.cases(D0.PCA), ]
+PCA.train <- prcomp(D0.PCA[,(2:ncol(D0.PCA))],center = T,scale. = F)
+projected.train <- scale(D0.PCA[,(2:ncol(D0.PCA))], PCA.train$center, PCA.train$scale) %*% PCA.train$rotation
+# Perofrm a 9 dimensional projection
+D1 <- data.table(D0.PCA$labels,projected.train[,1:9]%*%t(PCA.train$rotation)[1:9,])
+par(mfrow=c(5,5),mar=c(0.1,0.1,0.1,0.1))
+for (i in 1:25)
+{
+  mat <- matrix(as.numeric(D1[i,530:2,with=F]),nrow = 23,ncol=23,byrow = F)
+  mat <- mat[nrow(mat):1,]
+  image(mat,main=paste0('This is a ',D1[i,1]))
+}
+names(D1)[1]<-"labels"
+```
+
+### <span style="color:blue">Do a 9 dimensional FISHER projection. Lets call it D2 dataset -</span>
+
+```{r D2}
+D0.lda <- D0.No_0_Var
+lda.train <- lda(labels ~ ., data = D0.lda)
+projected <- as.matrix(D0.lda[,-1])%*%lda.train$scaling
+D2 <- data.frame(D0.lda$labels,projected)
+names(D2)[1]<-"labels"
+```
+
+### <span style="color:blue">Build a Bayesian classifier on D1 (single Gaussian per class) - Diagonal Covariance matrix (i.e.set non-diagonals to zero), Full Covariance matrix -</span>
+
+I have used DQDA classifier from sparsediscrim library which is a modification to the well-known QDA classifier, where the off-diagonal elements of each class covariance matrix are assumed to be zero. From the accuracy output we can see that the accuracy is very low, this is expected as we have only used single Gaussian per class and only diagonal covariances.
+For full covariance matrix i have used the regular QDA method of MASS package.
+
+```{r Bayesian D1}
+train <- sample(1:nrow(D1),as.integer(0.7*nrow(D1)))
+D1.train <- D1[train, ]
+D1.test <- D1[-train, ]
+dqda.D1 <- dqda(labels ~ ., data = D1.train)
+predicted.diag <- predict(dqda.D1, D1.test)$class
+test_accuracy.diag = mean(predicted.diag == D1.test$V1)
+test_accuracy.diag
+
+cl.train <- multi.collinear(D1.train[,-1])
+#cl.test <- multi.collinear(D1.test[,-1])
+D1.train.mc <- dplyr::select(D1.train, -(cl.train))
+D1.test.mc <- dplyr::select(D1.test, -(cl.train))
+fullMat.qda <- qda(labels ~., data = D1.train.mc)
+predicted.fullMat <- predict(fullMat.qda, D1.test.mc)$class
+test_accuracy.fullMat = mean(predicted.fullMat == D1.test.mc$V1)
+test_accuracy.fullMat
+```
+
+### <span style="color:blue">Build a Bayesian classifier on D2 (single Gaussian per class) - Diagonal Covariance Full covariance -</span>
+
+Using the same Bayesian methods as used for D1 abaove -
+
+```{r Bayesian D2}
+D2 <- na.omit(D2)
+train <- sample(1:nrow(D2),as.integer(0.7*nrow(D2)))
+D2.train <- D2[train, ]
+D2.test <- D2[-train, ]
+dqda.D2 <- dqda(labels ~ ., data = D2.train)
+predicted.diagD2 <- predict(dqda.D2, D2.test)
+test_accuracy.diagD2 <- mean(predicted.diagD2$class == na.omit(D2.test$labels))
+test_accuracy.diagD2
+
+fullMat.qda <- qda(labels ~., data = D2.train)
+predicted.fullMat <- na.omit(predict(fullMat.qda, D2.test)$class)
+test_accuracy.fullMat = mean(predicted.fullMat == na.omit(D2.test$labels))
+test_accuracy.fullMat
+```
+
+### <span style="color:blue">Compare the test accuracies of the four classifiers and comment. -</span>
+
+The accuracy of Bayesian model for D2 set with diagonal matrix is very low at 13%.This is expected as we have only single Gaussian with only diagonal matrix i.e. restricted axis direction so we have not accounted for sub classes with in each digit and also shape axis direction is restricted.  With a full covariance matrix QDA on D2 i got a high accuracy of 89% which is due to the much larger parameters learned and free Gaussian shape axis direction. As LDA already discriminates data boundary,the higher it has higher accuracy over PCA is not surprising as LDA projection already separates classes well. 
+
+The accuracy of Bayesian model on D1 with diagonal matrix is very low at 12%. This is also expected as we have only single Gaussian with only diagonal matrix i.e. restricted axis so we have not accounted for sub classes with in each digit and also shape axis direction With a full covariance matrix QDA on D2 i got a high accuracy of 87% with non collinear PCA (9) projections, the higher accuracy is in sync with the PCA based digits plots (refer 25 plots of 0 above) earlier where we got good digit rendering with 9 dimensional PCA.
+
+## <span style="color:red">P5 : MNIST -kNN / Parzen window - </span>
+
+### <span style="color:blue">Build k-Nearest neighbors classifierwith: K = 1, 3, 5, 7, 9, 11, 13, 15, 17 Plot training and test accuracy with these values of k on x axis -</span>
+
+Performing knn on the full size of D1 for MNIST dataset is not possible on ordinary hardware, hence i have done a 10% sample of train subset and 10% test subset sample to run knn on D1 while for D2 full dataset is used- 
+
+```{r kNN D1,D2}
+getKNNTable <- function(D, Dtype)
+{
+  D <- na.omit(D)
+  train1 <- sample(1:nrow(D),as.integer(0.7*nrow(D)))
+  D.train <- D[train1, ]
+  D.test <- D[-train1, ]
+  if(Dtype == 1)
+  {
+    train.tr <- sample(1:nrow(D.train),as.integer(0.1*nrow(D.train)))
+    D.train <- D.train[train.tr, ]
+    train.test <- sample(1:nrow(D.test),as.integer(0.1*nrow(D.test)))
+    D.test <- D.test[train.test, ]
+  }
+  D.train$labels <-as.factor(D.train$labels)
+  D.test$labels <-as.factor(D.test$labels)
+  set.seed(123)
+  K <- c(seq(1, 17, by = 2))
+  KNNTable.D <- data.frame(matrix(ncol = 3, nrow = 0))
+  knncolnames <- c("K","Accuracy_Train", "Accuracy_Test")
+  colnames(KNNTable.D) <- knncolnames
+  for(i in 1:length(K))
+  {
+    knn.tr <-  knn(train=D.train, test=D.train, cl=D.train$labels, k=K[i])
+    accuracy_tr <- mean(na.omit(knn.tr) == D.train$labels)
+    knn.test <-  knn(train=D.train, test=D.test, cl=D.train$labels, k=K[i])
+    accuracy_test <- mean(na.omit(knn.test) == D.test$labels)
+    knnmat <- as.matrix(KNNTable.D)
+    t.row <- c(K[i], accuracy_tr, accuracy_test)
+    KNNTable.D <- insertRow(knnmat,i,t.row) 
+  }
+  KNNTable.D <- as.data.frame(KNNTable.D, stringsAsFactors = FALSE)
+  KNNTable.D <- KNNTable.D[order(KNNTable.D$K),]
+  return(KNNTable.D)
+}
+Dtype <- 1
+KNNTable.D1 <- getKNNTable(D1, Dtype)
+KNNTable.D1
+
+plot(as.vector(KNNTable.D1$K), as.vector(KNNTable.D1$Accuracy_Train), type="o", col="red", pch="o",main = "KNN -D1",xlab="K",ylab="Accuracy",ylim=c(0.80, 1.03) )
+points(as.vector(KNNTable.D1$K), as.vector(KNNTable.D1$Accuracy_Test), col="blue", pch="*")
+lines(as.vector(KNNTable.D1$K), as.vector(KNNTable.D1$Accuracy_Test), col="blue")
+legend(15, 0.98, legend=c("Train", "Test"), col=c("red", "blue"), lty=1:2, cex=1.2)
+
+Dtype <- 2
+KNNTable.D2 <- getKNNTable(D2, Dtype)
+KNNTable.D2
+
+plot(as.vector(KNNTable.D2$K), as.vector(KNNTable.D2$Accuracy_Train), type="o", col="red", pch="o",main = "KNN -D2",xlab="K",ylab="Accuracy",ylim=c(0.95, 1.03) )
+points(as.vector(KNNTable.D2$K), as.vector(KNNTable.D2$Accuracy_Test), col="blue", pch="*")
+lines(as.vector(KNNTable.D2$K), as.vector(KNNTable.D2$Accuracy_Test), col="blue")
+legend(15, 1.02, legend=c("Train", "Test"), col=c("red", "blue"), lty=1:2, cex=1.2)
+```
+
+From kNN on PCA and LDA projections we can see much better test accuracy performance from LDA over PCS projection and also less overfitting in kNN over LDA projection. For both projections, lower K has higher accuracy as projected data is expected to have very less noise.
+
+### <span style="color:blue">Build Parzen window classifierwith: Sigma = 0.1, 0.2, 0.3, ., 3.0 Plot training and test accuracies with these values of sigma. -</span>
+
+Parzen window classifier uses Kernel density calculations. I have used Naive Bayes classifer based on Kernel Density to create a Parzen window classifier. As as with kNN, the method takes too much time on D1 dataset so  iave taken a sub sample of both train and test to run on D1.
+A plot of the density of the X variables (first) using different methods to select sigma or lamda - Sheather-Jones, biased cross-validation and regular (unbiased) cross-validation for D1 is shown. Generally normal reference approach produces the smoothest estimate.
+
+```{r Parzen D1,D2}
+col <- c("black","blue","red","green")
+d <- vector("list",4)
+plot(d[[1]] <- density(D1$V87,bw="nrd"),main="",xlab="Waiting time (min)",ylim=c(0,55),col=col[1],lwd=2)
+lines(d[[2]] <- density(D1$V87,bw="sJ"),col=col[2],lwd=2)
+lines(d[[3]] <- density(D1$V87,bw="ucv"),col=col[3],lwd=2)
+lines(d[[4]] <- density(D1$V87,bw="bcv"),col=col[4],lwd=2)
+legend("topleft",col=col,legend=paste(c("Normal reference","Sheather-Jones","Cross-validation","Biased CV"),formatC(unlist(lapply(d,function(x){x$bw})),2,format='f')),lty=1,lwd=2)
+
+
+getParzenClassifierAccuracy <- function(D, Dtype)
+{
+  ParzenTable <- data.frame(matrix(ncol = 3, nrow = 0))
+  pcolnames <- c("Sigma","Accuracy_Train", "Accuracy_Test")
+  colnames(ParzenTable) <- pcolnames
+  train <- sample(1:nrow(D),as.integer(0.7*nrow(D)))
+  D.train <- D[train, ]
+  D.test <- D[-train, ]
+  sigma <- c(seq(0.1, 3.0, by = 0.1))
+   if(Dtype == 1)
+  {
+    train.tr <- sample(1:nrow(D.train),as.integer(0.1*nrow(D.train)))
+    D.train <- D.train[train.tr, ]
+    train.test <- sample(1:nrow(D.test),as.integer(0.1*nrow(D.test)))
+    D.test <- D.test[train.test, ]
+  }
+  for(i in 1:length(sigma))
+  {
+    model.tr <- naive_bayes(x = D.train[,-1], y = D.train$labels, usekernel = TRUE, fl = sigma[i])
+    pred.tr <- predict(model.tr, newdata = D.train[,-1], type = c("class"))
+    accur.tr = mean(pred.tr == D.train$labels)
+    
+    pred.test <- predict(model.tr, newdata = D.test[,-1], type = c("class"))
+    accur.test = mean(pred.test == D.test$labels)
+    pmat <- as.matrix(ParzenTable)
+    t.row <- c(sigma[i], accur.tr, accur.test)
+    ParzenTable <- insertRow(pmat,i,t.row) 
+  }
+  ParzenTable <- as.data.frame(ParzenTable, stringsAsFactors = FALSE)
+  ParzenTable <- ParzenTable[order(ParzenTable$Sigma),]
+  return(ParzenTable)
+  
+}
+Dtype <- 1
+ParzenTable.D1 <- getParzenClassifierAccuracy(D1, Dtype)
+ParzenTable.D1
+plot(as.vector(ParzenTable.D1$Sigma), as.vector(ParzenTable.D1$Accuracy_Train), type="o", col="red", pch="o",main = "Parzen -D1",xlab="K",ylab="Accuracy",ylim=c(0.50, 0.85) )
+points(as.vector(ParzenTable.D1$Sigma), as.vector(ParzenTable.D1$Accuracy_Test), col="blue", pch="*")
+lines(as.vector(ParzenTable.D1$Sigma), as.vector(ParzenTable.D1$Accuracy_Test), col="blue")
+legend(0.3, 0.6, legend=c("Train", "Test"), col=c("red", "blue"), lty=1:2, cex=1.2)
+
+Dtype <- 2
+ParzenTable.D2 <- getParzenClassifierAccuracy(D2,Dtype)
+ParzenTable.D2
+plot(as.vector(ParzenTable.D2$Sigma), as.vector(ParzenTable.D2$Accuracy_Train), type="o", col="red", pch="o",main = "Parzen -D2",xlab="K",ylab="Accuracy",ylim=c(0.50, 0.9) )
+points(as.vector(ParzenTable.D2$Sigma), as.vector(ParzenTable.D2$Accuracy_Test), col="blue", pch="*")
+lines(as.vector(ParzenTable.D2$Sigma), as.vector(ParzenTable.D2$Accuracy_Test), col="blue")
+legend(0.3, 0.6, legend=c("Train", "Test"), col=c("red", "blue"), lty=1:2, cex=1.2)
+```
+
+### <span style="color:blue">Comment on the optimal k and optimal sigma and compare those classifiers across D1 and D2 and see which one has highest test accuracy. -</span>
+
+From kNN on PCA and LDA projections we can see much better test accuracy performance from LDA over PCS projection and also less overfitting in kNN over LDA projection. For both projections, lower K has higher accuracy as projected data is expected to have very less noise. The Optimal k for D1 kNN is 3 for test and for D2 its 1.
+
+For Parzen Window based Naive Bayes the accuracy on D2 is higher compared to D1 however sigma does not seem to have any effect on accuracy. The overall test accuracy is higher with Parzen window.
+
+## <span style="color:red">P6 : News group TextClassifier - </span>
+
+### <span style="color:blue">Build a Naïve Bayes Classifier on Newsgroup dataset -</span>
+
+### <span style="color:blue">DICTIONARY: Compute the document frequency of all words (how many documents each word occurred in) Sortthis in descending order of document frequency Pick the top 5000 and 10000 words as the dictionary. -</span>
+
+```{r read newsgroup data}
+folders_names =list("alt.atheism","comp.graphics","comp.os.ms-windows.misc","comp.sys.ibm.pc.hardware"
+                  ,"comp.sys.mac.hardware","comp.windows.x","misc.forsale","rec.autos"
+                  ,"rec.motorcycles","rec.sport.baseball","rec.sport.hockey","sci.crypt"
+                  ,"sci.electronics","sci.med","sci.space","soc.religion.christian"
+                  ,"talk.politics.guns","talk.politics.mideast","talk.politics.misc","talk.religion.misc")
+
+paths <- paste0('C:/Users/Shadab/Downloads/20_newsgroups/',folders_names)
+
+file_names <- list.files(path=paths,full.names = T)
+
+
+
+news.df<-data.frame("Id"=NA,"Text"=NA,"News_Group"=NA)
+for (i in 1:length(file_names)){
+  len<-str_length(file_names[i])
+  news_group_1<-substr(file_names[i],61,len)
+  news_group_2<-substr(news_group_1,0,str_locate(news_group_1,'/')-1)
+  df<-readtext(file_names[i])
+  df$news_group<-news_group_2
+  colnames(df)<-c("Id","Text","News_Group")
+  news.df<-rbind(news.df,df)
+}
+
+unique(news.df$News_Group)
+
+clean <- news.df %>%
+  filter(str_detect(Text, "^[^>]+[A-Za-z\\d]") | Text == "",
+         !str_detect(Text, "writes(:|\\.\\.\\.)$"),
+         !str_detect(Text, "^In article <"))
+
+
+words <- clean %>%
+  unnest_tokens(word, Text) %>%
+  filter(str_detect(word, "[a-z']$"),
+         !word %in% stop_words$word)
+
+head(words)
+
+word_groupby <- words%>%
+  group_by(News_Group) %>%
+  count(word, sort = TRUE) %>%
+  ungroup()
+
+head(word_groupby)
+
+words_tf_idf <- word_groupby %>%
+  bind_tf_idf(word, News_Group, n) %>%
+  arrange(desc(tf-idf))
+```
+
+
+### <span style="color:blue">Learn P(w|c) for all words and classes -</span>
+Apply Laplacian smoothing of 30
+Compute the training and test set accuracy of the model.
+
+Could not complete for lack of time-
+```{r Probs}
+prob = prop.table(as.matrix(words_tf_idf$n),2)
+
+words_final<-data.frame(news_group=words_tf_idf$News_Group,words=words_tf_idf$word,count=words_tf_idf$n ,prob)
+dict_5k <- sqldf("select * from words_final order by count desc limit 5000")
+dict_10k = sqldf("select * from words_final order by count desc limit 10000")
+
+print(head(dict_5k))
+print(head(dict_10k))
+
+
+training <- words_final$words %>%
+  createDataPartition(p = 0.8, list = FALSE)
+words_train <- words_final[training, ]
+words_test <- words_final[-training, ]
+
+news_nb<-naiveBayes(prob~count+news_group,data = words_train,laplace = 30, type = c("prob"))
+news_nb_pred<-predict(news_nb,words_test[1:3])
+#conf_mat <- confusionMatrix(news_nb_pred, words_test$prob)
+```
