@@ -1,0 +1,445 @@
+---
+title: <span style="color:black">"FINANCIAL ANALYTICS Assignment - Shadab Kalim (Individual Sumbission)"</span>
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+Install the libraries to be used for Assignment.
+
+```{r setup}
+knitr::opts_chunk$set(fig.width=16, fig.height=14) 
+if (!require(corrplot)){install.packages("corrplot")}
+if(!require(dplyr)){install.packages("dplyr")}
+if(!require(quadprog)){install.packages("quadprog")}
+if (!require(MASS)){install.packages("MASS")}
+if (!require(quantmod)){install.packages("quantmod")}
+if (!require(RColorBrewer)){install.packages("RColorBrewer")}
+if (!require(bizdays)){install.packages("bizdays")}
+if (!require(fExoticOptions)){install.packages("fExoticOptions")}
+if (!require(derivmkts)){install.packages("derivmkts")}
+if (!require(IntroCompFinR)){install.packages("IntroCompFinR", repos="http://R-Forge.R-project.org")}
+if (!require(sde)){install.packages("sde")}
+if (!require(fBasics)){install.packages("fBasics")}
+if (!require(RQuantLib)){install.packages("RQuantLib")}
+
+library(IntroCompFinR)
+library(derivmkts)
+library(fExoticOptions)
+library(corrplot)
+library(dplyr)
+library(quadprog)
+library(MASS)
+library(quantmod)
+library(RColorBrewer)
+library(bizdays)
+library(sde)
+library(fBasics)
+library(RQuantLib)
+```
+## <span style="color:red">Problem 1: </span>
+## <span style="color:blue">The portfolio Optimization problem: </span>
+## <span style="color:blue">1. The efficient frontier: </span>
+
+Read the covariance matrix from the csv file:
+```{r read file}
+covmat.df <- read.csv(file.choose(), stringsAsFactors =FALSE)
+```
+
+Solve for 20 values of R and plot the mean variance frontier - 
+
+I have calculted both the efficient frontier as well as the Tangency portfolio with maximum Sharpe ratio. 
+
+```{r Efficient Frontier}
+assetnames <- c("UB","IB","ULG","ULV","USG","USV","IDE","IEE")
+covar.mat <-as.matrix(covmat.df[,2:9])
+rownames(covar.mat) <- assetnames
+colnames(covar.mat) <- assetnames
+str(covar.mat)
+
+ret.vec <- c(.08,.67,6.41,4.08,7.43,3.7,4.8,6.6)/100 #Convert to absolute values from percentage 
+ret.vec
+  
+geteffcientFront <- function (returns.vec)
+{
+  D.mat <- 2*covar.mat
+  d.vec <- rep(0,8)
+  A.mat <- matrix(c(returns.vec,-returns.vec,rep(1,8),rep(-1,8),diag(length(returns.vec))),8,12)
+  
+  varPort.vec <- vector()
+  sigPort.vec <- vector()
+  Returns_20 <-  vector()
+
+  # Compute 20 Required R values
+  Returns_20=seq(min(returns.vec)+0.1^10,max(returns.vec)-0.1^10,length.out=20);
+  
+  weights.df <- setNames(data.frame(matrix(ncol = 8, nrow = 20)), c("w1", "w2", "w3", "w4", "w5", "w6", "w7", "w8"))
+  
+  for(i in 1:length(Returns_20))
+  {
+    R=Returns_20[i]
+    b0.vec <- c(R,-R,1,-1,rep(0,8))
+    QP.result = solve.QP(D.mat,d.vec,A.mat,b0.vec)
+    
+    #Save solved values for each R
+    varPort.vec[i] = QP.result$value
+    sigPort.vec[i] = sqrt(varPort.vec[i])
+    for(j in 1:8)
+    {
+      weights.df[i,j] = QP.result$solution[j]
+    }
+    
+  }
+  retList <- list()
+  retList$weights <- weights.df
+  retList$varPort <- varPort.vec
+  retList$sigPort <- sigPort.vec
+  retList$Returns <- Returns_20
+  
+  return(retList)
+}
+
+retList <- geteffcientFront(ret.vec)
+
+#Tangency Portfolio - maximum Sharpe ratio portfolio
+tan.M <- tangency.portfolio(ret.vec, covar.mat, risk.free = 0, shorts = FALSE)
+print("Morkowitz Tangency Portfolio Return")
+tan.M$er
+print("Morkowitz Tangency Portfolio SD:")
+tan.M$sd
+print("Morkowitz Tangency Portfolio Weights:")
+tanMWeights <- tan.M$weights
+names(tanMWeights) <- assetnames
+tanMWeights
+
+total_weight<-apply(retList$weights,1,sum)
+total_weight
+#Efficient frontier Plot 
+EffFrontMarkoW <- plot(retList$sigPort,retList$Returns,type = 'l',lty = 1,lwd=3, xlab = 'Risk',ylab = 'Returns', main = 'Efficient Frontier Mean variance method',col = 'blue')
+```
+
+Plot how the fraction in each asset changes with R -
+
+```{r Assets with weights}
+plotswithAssets <- function (ports.lst, plottext, combined, ports.comb, BLorMarko)
+{
+  weightsPort.df <- ports.lst$weights
+  weightComb.df <- data.frame()
+  if(combined == T)
+    weightComb.df <- ports.comb$weights
+  if(combined == F)
+  {
+    plot(ports.lst$Returns,weightsPort.df$w1,type = 'l', lty = 1,lwd=5, xlab ='Returns' ,ylab = 'Weights of   Assets' , main =  plottext , col = 'red')
+  lines(ports.lst$Returns,weightsPort.df$w2,"l",lty = 1,lwd=5,col = 'black')
+  lines(ports.lst$Returns,weightsPort.df$w3,"l",lty = 1,lwd=5,col='green')
+  lines(ports.lst$Returns,weightsPort.df$w4,"l",lty = 1,lwd=5,col = 'blue')
+  lines(ports.lst$Returns,weightsPort.df$w5,"l",lty = 1,lwd=5,col='purple')
+  lines(ports.lst$Returns,weightsPort.df$w6,"l",lty = 1,lwd=5,col = 'dark green')
+  lines(ports.lst$Returns,weightsPort.df$w7,"l",lty = 1,lwd=5,col='brown')
+  lines(ports.lst$Returns,weightsPort.df$w8,"l",lty = 1,lwd=5,col='orange')
+  legend('topleft', c("US Bonds","Intl Bonds","US Large Growth","US Large Value","US Small Growth","US Small Value","Intl Dev. Equity","Intl Emerg. Equity"), pch = 17, 
+         col = c('red','black','green','blue','purple','dark green','brown','orange'), 
+         text.col = c('red','black','green','blue','purple','dark green','brown','orange'), cex = .8)    
+  }
+  colr <-"blue"
+  if(BLorMarko =="BL")
+  {
+    colr <- "green"
+  }
+  par(mfrow = c(4,2))
+  plot(ports.lst$Returns,weightsPort.df$w1,type = 'l', lty = 1,lwd=3, xlab ='Returns' ,ylab = 'Weight' , main = 'US Bonds', col = colr)
+  if (combined == T)
+    lines(ports.comb$Returns,weightComb.df$w1,"l",lty = 1,lwd=3,col = 'green')
+  plot(ports.lst$Returns,weightsPort.df$w2,type = 'l', lty = 1,lwd=3,xlab ='Returns' ,ylab = 'Weight' , main = "Intl Bonds", col = colr)
+  if (combined == T)
+    lines(ports.comb$Returns,weightComb.df$w2,"l",lty = 1,lwd=3,col = 'green')
+  plot(ports.lst$Returns,weightsPort.df$w3,type = 'l', lty = 1, lwd=3,xlab ='Returns' ,ylab = 'Weight' , main = "US Large Growth", col = colr)
+  if (combined == T)
+    lines(ports.comb$Returns,weightComb.df$w3,"l",lty = 1,lwd=3,col = 'green')
+  plot(ports.lst$Returns,weightsPort.df$w4,type = 'l', lty = 1,lwd=3, xlab ='Returns' ,ylab = 'Weight' , main = "US Large Value", col = colr)
+  if (combined == T)
+    lines(ports.comb$Returns,weightComb.df$w4,"l",lty = 1,lwd=3,col = 'green')
+  plot(ports.lst$Returns,weightsPort.df$w5,type = 'l', lty = 1,lwd=3, xlab ='Returns' ,ylab = 'Weight' , main = "US Small Growth", col = colr)
+  if (combined == T)
+    lines(ports.comb$Returns,weightComb.df$w5,"l",lty = 1,lwd=3,col = 'green')
+  plot(ports.lst$Returns,weightsPort.df$w6,type = 'l', lty = 1,lwd=3, xlab ='Returns' ,ylab = 'Weight' , main = "US Small Value", col = colr)
+  if (combined == T)
+    lines(ports.comb$Returns,weightComb.df$w6,"l",lty = 1,lwd=3,col = 'green')
+  plot(ports.lst$Returns,weightsPort.df$w7,type = 'l', lty = 1,lwd=3, xlab ='Returns' ,ylab = 'Weight' , main = "Intl Dev. Equity", col = colr)
+  if (combined == T)
+    lines(ports.comb$Returns,weightComb.df$w7,"l",lty = 1,lwd=3,col = 'green')
+  plot(ports.lst$Returns,weightsPort.df$w8,type = 'l', lty = 1,lwd=3, xlab ='Returns' ,ylab = 'Weight' , main = "Intl Emerg. Equity", col = colr)
+  if (combined == T)
+    lines(ports.comb$Returns,weightComb.df$w8,"l",lty = 1,lwd=3,col = 'green')
+}
+
+plotswithAssets(retList, 'Markowitz - Plot of Weights vs Returns',FALSE,BLorMarko="MW")
+```
+### <span style="color:blue">2. Black Litterman Model </span>
+
+The BL Model incorporates an investor or expert's own views in calculating asset allocation between multipe assets by taking the Markowitz model further.
+
+```{r BL}
+tau.scal.Const <- 0.25
+
+BL.var1 <- ginv(tau.scal.Const * covar.mat)
+
+
+pick.Mat <- matrix( c(0,0,0,0,0,0,0,0,
+               -1,0,0,0,0,0,1,1,
+               0,0,0,-1,0,0,1,0),3,8)
+
+Omega <- matrix(c(0.000801,0,0,
+                  0,0.009546,0,
+                  0,0,0.00084),3,3)
+
+BL.var2 <- t(pick.Mat) %*% ginv(Omega) %*% pick.Mat
+Q <- c(0.041,0.016,0.008)
+
+BL.var1_2 <- ginv(BL.var1+BL.var2)
+BL.var3 <- (t(pick.Mat) %*% ginv(Omega) %*% Q) + (BL.var1 %*% ret.vec) 
+rets.vec <- BL.var1_2 %*% BL.var3
+rets.vec <- as.vector(rets.vec)
+
+BL.retList <- geteffcientFront(rets.vec)
+
+#Tangency Portfolio -maximum Sharpe ratio portfolio
+tan.BL <- tangency.portfolio(rets.vec, covar.mat, risk.free = 0, shorts = FALSE)
+print("BL Tangency Portfolio Return")
+tan.BL$er
+print("BL Tangency Portfolio SD:")
+tan.BL$sd
+print("BL Tangency Portfolio Weights:")
+tanBLWeights <- tan.BL$weights
+names(tanBLWeights) <- assetnames
+tanBLWeights
+
+BL.total_weight<-apply(BL.retList$weights,1,sum)
+BL.total_weight
+BL.EffFrontMarkoW <- plot(BL.retList$sigPort,BL.retList$Returns,type = 'l',lty = 1,lwd=3, cex.axis = 1.5, cex.lab=1.5, xlab = 'Risk',ylab = 'Returns', main = 'Efficient Frontier with BL',col = 'green')
+plotswithAssets(BL.retList, 'BL - Plot of Weights vs Returns', FALSE,BLorMarko="BL")
+```
+
+### <span style="color:blue">3. Compare the two portfolios:</span>
+
+
+```{r Tangential portfolios plot}
+barplot(t(cbind(tanMWeights,tanBLWeights)), beside=TRUE, col=2:3, cex.axis = 1.5, cex.lab=1.5,cex.names=0.8, las=2, main="Tangential Weights in Mean -Var vs BL", sub="Red = Mean Var, Green= BL")
+```
+Comparision of Markowitz and Black - Litterman models and interpretaion - 
+
+Assumptions:
+
+Returns of the Assets are normally distributed.
+The prior and conditional distribution variance about the true mean are known.
+
+The Tangential portfolio (maximum Sharpe ratio) returns for simple mean variance portfolio is comparitively lower at 3% and that by incorporating Black - Litterman model is higher at 3.24%. The Risks are marginally higher in BL model over simple mean variance model. Looking weights distributions we can clearly see - 
+
+View 1: US Small Cap Value gets a higher weight allocation in BL model accounting for 4% premium. 
+
+View 2: Looking at the barplots (see below) of weights distribution betwwen Markowitz and BL, we can see weights distribution of International emerging markets (Red bars) is higher in BL compard to markowitz WRT International Developed Equity (Dark Orange bars).
+
+View 3 - The weight distribution of US Small Cap growth increases exponentially as expected returns increases beyond 6.5 - 7%.
+
+Tangential portfolio (Markowitz)-
+
+Portfolio expected return:     0.03036165 
+Portfolio standard deviation:  0.1001493
+Tangency Portfolio Weights:
+      UB       IB      ULG      ULV      USG      USV      IDE      IEE 
+0.180409 0.268921 0.119896 0.124435 0.016024 0.010849 0.243523 0.035942 
+
+TangentialPortfolio (With BL) -
+
+Portfolio expected return:     0.03240013 
+Portfolio standard deviation:  0.1004486
+Tangency Portfolio Weights:
+      UB       IB      ULG      ULV      USG      USV      IDE      IEE 
+0.168342 0.256090 0.131517 0.149864 0.000000 0.039555 0.237616 0.017015 
+
+
+```{r Markowitz vs BL}
+BL.EffFrontMarkoW <- plot(BL.retList$sigPort,BL.retList$Returns,type = 'l',lty = 1,lwd=3, cex.axis = 1.5, cex.lab=1.5, xlab = 'Risk',ylab = 'Returns', main = 'Mean variance method with BL vs without BL',col = 'green')
+lines(retList$sigPort,retList$Returns,type = 'l',lty = 1,lwd=3, col = 'blue')
+legend('topleft', c("With BL","Without BL"), pch = 15,
+       col = c('green','blue'), text.col = c('green','blue'))
+plotswithAssets(retList, 'BL - Plot of Weights vs Returns', combined = TRUE, BL.retList,BLorMarko="COMB")
+```
+Plots of the fractions of asset weights - 
+
+```{r Plots of the fractions}
+sequential <- brewer.pal(8, "Spectral")
+barplot(t(retList$weights),names.arg = row.names(retList$weights),cex.axis = 1.5, cex.lab=1.5, cex.names=1.5, xlab="Markowitz - Returns 0.08% to 7.43%", ylab = "Asset share", col = sequential, xlim = c(0,27), width = 1)
+legend("bottomright", legend = assetnames,fill = sequential[8:1],
+ title = "Markowitz Asset Fractions")
+
+barplot(t(BL.retList$weights),names.arg = row.names(BL.retList$weights), cex.axis = 1.5, cex.lab=1.5, cex.names=1.5,xlab="BL - Returns 0.08% to 7.43%", ylab = "Asset share", col = sequential, xlim = c(0,27), width = 1)
+legend("bottomright", legend = assetnames,fill = sequential[8:1],
+ title = "BL Asset Fractions")
+```
+
+## <span style="color:red">Problem 2: </span>
+## <span style="color:blue">Exotic Option Pricing: </span>
+## <span style="color:blue">1. First choose one non-dividend paying stock - </span>
+
+I have decided to choose Facebook Inc (FB) as the non dividend paying stock for this excercise. I have used the quantmod library to get stock and options data from Yahoo Finance using API calls. It has been observed that sometimes (happened once only during testing) after market closure the bid / ask prices are returned as 0 by Yahoo Finance (And others webites also) both on website and through API's, to handle this scenario i have used the "last"" column as price if they are returned 0 by API to ensure code does not break. The FB options expiry closest to 6 months from now are on date 2020-10-16 - 
+
+```{r FB Options}
+#Get Yahoo Finance data (default option in quantmod)
+FB.price <- getQuote('FB')
+CurrFBPrice <- FB.price$Last
+print('Current FB stock price:')
+CurrFBPrice
+FB.2019 <- getOptionChain('FB', '2020-10-16')
+CallOptions <- FB.2019$calls
+CallOptions
+```
+
+Code to get the call option closest to the strike price - 
+
+```{r Select FB Option}
+index <- which(abs(CallOptions$Strike-CurrFBPrice)==min(abs(CallOptions$Strike-CurrFBPrice)))
+selOption <- CallOptions[index, ]
+selOption
+priceOpt <- (selOption$Bid + selOption$Ask)/2
+#Use the Last price as option price if bid / ask is 0
+if(priceOpt == 0)
+{
+  priceOpt <- selOption$Last
+}
+print('Price of the option (Bid+Ask/2):')
+priceOpt
+strikePrice <- selOption$Strike
+print('Strike Price of the option:')
+strikePrice
+```
+
+Get business days to expiry date for the selected option FB190621C00145000 (2020-10-16) using library "bizdays" - 
+
+```{r Get bussiness days to expiry}
+holidaysUS <- c('2018-11-22','2018-12-25','2019-01-01','2019-01-21','2019-02-18','2019-05-27','2019-07-04','2019-09-02','2019-10-14','2019-11-11','2019-11-28','2019-12-25','2020-01-01')
+create.calendar(name="Actual", holidays = holidaysUS, weekdays=c("saturday", "sunday"))
+timeToExpiry <- bizdays(Sys.Date(), '2020-10-16', 'Actual')
+print('Business days to expiry date (T):')
+timeToExpiry
+```
+
+Write a R function that prices a European option for a given stock. - 
+
+```{r callPricer}
+numberOfTradingDays = bizdays('2019-01-01', '2019-12-31', 'Actual')
+callPricer = function(p0, K, Tdays, r, sigma,  N) 
+{
+  muInt=r/numberOfTradingDays
+  sigmaInt=sigma/sqrt(numberOfTradingDays)
+
+  payOff = vector()
+
+  for (i in 1:N)
+  {
+    returns=rnorm(Tdays,muInt,sigmaInt)
+    
+    p=p0
+    for(j in 1:length(returns))
+    {
+      p = p*(1+returns[j])
+    }
+    
+    payOff[i]=max(p-K,0)
+  }
+  
+  optPrice = mean(payOff)/(1+r/numberOfTradingDays)^Tdays
+  return(optPrice)
+}
+```
+
+## <span style="color:blue">3. Next use the function above to estimate the volatility of the stock - </span>
+
+From the table of prices below we can see that the sigma that gives price closest to average of bid and ask calculated above (14.7) is 0.35 as highlihted in table -
+
+```{r FB volatilities}
+volatilities = seq(from = 0.05, to = 0.6, by = 0.05 )
+riskFreeRate <-0
+prices = vector()
+
+for(i in 1:length(volatilities))
+{
+  prices[i] = callPricer(CurrFBPrice, strikePrice, timeToExpiry, riskFreeRate, volatilities[i], 1000)
+}
+table.df <- cbind(volatilities, prices)
+colnames(table.df) <- c("Volatility", "Price")
+table.df
+plot(volatilities,prices,type = 'l',lty = 1,lwd=3, cex.axis = 1.5, cex.lab=1.5, xlab = 'Sigmas',ylab = 'Prices', main = 'Volatility Prices Plot',col = 'red')
+```
+
+## <span style="color:blue">4. Finally write a R code that prices this option. - </span>
+
+I have chosen Asian option as the exotic option to price. I have used sigma from step 3 (0.35) which gave the regular or vanilla option price near to the vanilla option chosen. Later i have also priced using historical sd from last 3 years just for comparision. Time to expiry is also kept at 6 months i.e. same as prevous Vanilla option along with current price and strike price also being same.
+
+Below aparagraph is taken from Investopedia ("https://www.investopedia.com/terms/a/asianoption.asp")-
+An Asian option is an option type where the payoff depends on the average price of the underlying asset over a certain period of time as opposed to standard options (American and European) where the payoff depends on the price of the underlying asset at a specific point in time (maturity). These options allow the buyer to purchase (or sell) the underlying asset at the average price instead of the spot price. Asian options are also known as average options.
+
+The Asian Option pricing is calculated using arthimetic mean by stimulating the stock prices that follow geometric brownian motion for the future and then using them to calculate the option price and also using library fExoticOptions method AsianOptions (Geometric Average Rate Option) and also using library derivmkts (Monte Carlo pricing calculations) method arithasianmc (Arithmetic average Asian option prices) and geomasianmc (Geometric average Asian option prices).
+
+The following is the description from "https://cran.r-project.org/web/packages/fExoticOptions/fExoticOptions.pdf" -
+Asian options are path-dependent options, with payoffs that depend on the average price of the underlying asset or the average exercise price. There are two categories or types of Asian options: average rate options (also known as average
+price options) and average strike options. The payoffs depend on the average price of the underlying asset over a predetermined time period. An average is less volatile than the underlying asset, therefore making Asian options less expensive than standard European options. Asian options are commonly used in currency and commodity markets. Asian options are of interest in markets with thinly traded assets. Due to the little effect it will have on the option's value, options based on an average, such as Asian options, have a reduced incentive to manipulate the underlying price at expiration. 
+
+Monte Carlo pricing calculations for European Asian options - arithasianmc and geomasianmc compute Monte Carlo prices for the full range of average price and average strike call and puts computes prices of a complete assortment of Arithmetic Asian options (average price call and put and average strike call and put).
+
+We can indeed see that Asian option price is lower that vanilla European optio price. The Vanilla price here in Arithemetic average price is closer to the price we got in simulation earlier in question 3.
+  
+
+```{r Price Option}
+r <- 0       
+T <- timeToExpiry/numberOfTradingDays
+sigma <- 0.35 # From question 3 above
+nt=10000
+n=numberOfTradingDays
+dt=T/n
+t=seq(0,T,by=dt)
+
+X=matrix(rep(0,length(t)*nt), nrow=nt)
+for (i in 1:nt) 
+{
+  X[i,]= GBM(x=CurrFBPrice,r=r,sigma=sigma,T=T,N=n)
+}
+
+Aavg <- array(0,dim=c(0,nt))
+Aoption.call <- array(0,dim=c(0,nt))
+Aoption.put <- array(0,dim=c(0,nt))
+for (i in 1:nt) 
+{
+  Aavg[i]=mean(X[i,])
+  Aoption.call[i]=exp(-r*T)*(max((Aavg[i]-strikePrice),0))
+  Aoption.put[i]=exp(-r*T)*(max((-(Aavg[i]-strikePrice)),0))
+}
+print("Arithmetic mean Asian option price - Geometric Brownian motion simulation")
+print("-------------------------------------------------------------------------")
+(arithmetic.asian.call=mean(Aoption.call))
+
+#Arithmetic average Asian option prices - Monte Carlo simulation
+print("Arithmetic average Asian option prices - Monte Carlo simulation")
+print("--------------------------------------------------------------")
+arithasianmc(CurrFBPrice, strikePrice, sigma, r, tt=T, d=0, m=100, numsim=10000, printsds=FALSE)
+
+#Geometric average Asian option prices - Monte Carlo simulation
+print("Geometric average Asian option prices - Monte Carlo simulation")
+print("-------------------------------------------------------------")
+geomasianmc(CurrFBPrice, strikePrice, sigma, r, tt=T, d=0, m=100, numsim=10000, printsds=FALSE)
+
+#Geometric Average Rate Option
+print("Geometric Average Rate Option - fExoticOptions")
+print("----------------------------------------------")
+AsianOption("geometric", "call", underlying=CurrFBPrice, strike=strikePrice, div=0.0,
+riskFree=r, maturity=T, vol=sigma)
+
+#Take sigma as sd for last 3 years.
+
+getSymbols('FB', src = 'yahoo', from = '2016-01-01',to=Sys.Date())
+sigma=sd(dailyReturn(FB))
+print("Take sigma as sd for last 3 years - Geometric")
+geomasianmc(CurrFBPrice, strikePrice, sigma, r, tt=T, d=0, m=100, numsim=10000, printsds=FALSE)
+
+```
